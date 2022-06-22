@@ -218,12 +218,12 @@ std::vector<cv::Mat> PansharpeningBase::CreateResampledMats(
       ys[col] -= source_range[1];
     }
     if (source_mat.depth() == CV_8U) {
-      utils::GetInterpolation<uint8_t>(
+      utils::CalculateInterpolations<uint8_t>(
           source_mat, target_range[2], xs.get(), ys.get(),
           static_cast<uint8_t*>(resampled_source_data.get()) + 
           static_cast<uint64_t>(bands_count) * row * target_range[2]);
     } else {
-      utils::GetInterpolation<uint16_t>(
+      utils::CalculateInterpolations<uint16_t>(
           source_mat, target_range[2], xs.get(), ys.get(),
           static_cast<uint16_t*>(resampled_source_data.get()) + 
           static_cast<uint64_t>(bands_count) * row * target_range[2]);

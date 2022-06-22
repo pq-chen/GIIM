@@ -16,7 +16,7 @@ class StretchBase : virtual public StretchInterface {
   bool Run(std::vector<cv::Mat>& mats) override;
 
  protected:
-   virtual void CreateThreshold(
+  virtual void CreateThreshold(
       std::vector<int>& low_thres,
       std::vector<int>& high_thres) = 0;
 };

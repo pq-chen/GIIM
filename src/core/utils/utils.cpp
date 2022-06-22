@@ -74,9 +74,6 @@ std::vector<cv::Mat> CalcHist(
     const cv::Mat& mat,
     const cv::Mat& mask_mat) {
   assert(mat.depth() == CV_8U || mat.depth() == CV_16U);
-  assert(
-      !mask_mat.empty() || !mask_mat.type() == CV_8UC1 || 
-      mask_mat.size() == mat.size());
 
   int bands_count(mat.channels()), 
       hist_size[1]{ static_cast<int>(std::pow(256, mat.elemSize1())) };
@@ -86,8 +83,7 @@ std::vector<cv::Mat> CalcHist(
 #pragma omp parallel for schedule(static, bands_count)
   for (int b = 0; b < bands_count; b++) {
     const int bands[1]{ b };
-    cv::calcHist(
-        &mat, 1, bands, mask_mat, hist_mats[b], 1, hist_size, ranges);
+    cv::calcHist(&mat, 1, bands, mask_mat, hist_mats[b], 1, hist_size, ranges);
   }
   return hist_mats;
 }
@@ -95,6 +91,7 @@ std::vector<cv::Mat> CalcHist(
 OGRGeometryUniquePtr CreateBorderGeometry(
     GDALDataset* source_raster_dataset,
     int overview_idx) {
+  // Create the mask raster dataset and initialize the mask vector dataset
   GDALDriver* memory_driver(GetGDALDriverManager()->GetDriverByName("Memory"));
   GDALDatasetUniquePtr 
       mask_raster_dataset(CreateMaskRasterDataset(
@@ -106,9 +103,13 @@ OGRGeometryUniquePtr CreateBorderGeometry(
       "", const_cast<OGRSpatialReference*>(
           source_raster_dataset->GetSpatialRef()), wkbPolygon));
   border_layer->CreateField(&value_field);
+
+  // Polygonize the mask raster dataset to the mask vector dataset
   GDALPolygonize(
       mask_raster_dataset->GetRasterBand(1), nullptr, border_layer, 0, nullptr,
       nullptr, nullptr);
+
+  // Find the biggeest geometry among all features with label 255
   double area;
   std::pair<GIntBig, double> max_geometry(-1, -1.);
   for (const auto& border_feature : border_layer)
@@ -159,11 +160,12 @@ GDALDatasetUniquePtr CreateDatasetFromMat(
       return nullptr;
     }
   }
-  int x_size(mat.cols), y_size(mat.rows);
+  int x_size(mat.cols), 
+      y_size(mat.rows), 
+      bytes_count(GDALGetDataTypeSizeBytes(dataset_type));
   if (!bands_count)
     bands_count = mat.channels();
-  int bytes_count(static_cast<int>(mat.elemSize1()));
-  GDALDriver* driver(GetGDALDriverManager()->GetDriverByName(
+  auto driver(GetGDALDriverManager()->GetDriverByName(
       driver_name.c_str()));
   GDALDatasetUniquePtr dataset(driver->Create(
       path.c_str(), x_size, y_size, bands_count, dataset_type, nullptr));
@@ -189,34 +191,34 @@ cv::Mat CreateHistLUT(
       _target_hist_mat,
       lut_mat(1, source_hist_mats[0].rows , type);
   for (int b = 0; b < bands_count; b++) {
+    // Normalize histogram mats to create cumulative distribution functions
     _source_hist_mat = source_hist_mats[b].clone();
     _source_hist_mat.at<float>(0) = 0;
     cv::normalize(_source_hist_mat, _source_hist_mat, 1.0, 0.0, cv::NORM_L1);
     _target_hist_mat = target_hist_mats[b].clone();
     _target_hist_mat.at<float>(0) = 0;
     cv::normalize(_target_hist_mat, _target_hist_mat, 1.0, 0.0, cv::NORM_L1);
-    auto source_hist_cdf(std::make_unique<float[]>(_source_hist_mat.rows)),
-        target_hist_cdf(std::make_unique<float[]>(_target_hist_mat.rows));
-    source_hist_cdf[0] = _source_hist_mat.at<float>(0);
-    target_hist_cdf[0] = _target_hist_mat.at<float>(0);
+    auto source_cdf(std::make_unique<float[]>(_source_hist_mat.rows)),
+        target_cdf(std::make_unique<float[]>(_target_hist_mat.rows));
+    source_cdf[0] = 0.0;
+    target_cdf[0] = 0.0;
     for (int i = 1; i < _source_hist_mat.rows; i++) {
-      source_hist_cdf[i] = 
-          source_hist_cdf[i - 1] + _source_hist_mat.at<float>(i);
-      target_hist_cdf[i] =
-          target_hist_cdf[i - 1] + _target_hist_mat.at<float>(i);
+      source_cdf[i] = source_cdf[i - 1] + _source_hist_mat.at<float>(i);
+      target_cdf[i] = target_cdf[i - 1] + _target_hist_mat.at<float>(i);
     }
+
+    // For each source CDF value, find the closest target CDF value and its index
 #pragma omp parallel for schedule(dynamic)
     for (int i = 0; i < _source_hist_mat.rows; i++) {
-      std::pair<double, int> min_idx{ 
-          fabs(source_hist_cdf[i] - target_hist_cdf[0]) , 0};
+      std::pair<double, int> min_idx{ fabs(source_cdf[i] - target_cdf[0]) ,0 };
       for (int j = 1; j < _source_hist_mat.rows; j++) {
-        double temp(fabs(source_hist_cdf[i] - target_hist_cdf[j]));
+        double temp(fabs(source_cdf[i] - target_cdf[j]));
         if (min_idx.first > temp) {
           min_idx.first = temp;
           min_idx.second = j;
         }
       }
-      if (type == CV_8U) {
+      if (type == CV_8UC(bands_count)) {
         *(lut_mat.ptr<uint8_t>(0) + bands_count * i + b) =
             static_cast<uint8_t>(min_idx.second);
       } else {
@@ -268,7 +270,7 @@ GDALDatasetUniquePtr CreateMaskRasterDataset(
   }
   int x_size(source_raster_band->GetXSize()),
       y_size(source_raster_band->GetYSize());
-  GDALDriver* mem_driver(GetGDALDriverManager()->GetDriverByName("MEM"));
+  auto mem_driver(GetGDALDriverManager()->GetDriverByName("MEM"));
   GDALDatasetUniquePtr mask_raster_dataset(mem_driver->Create(
       "", x_size, y_size, 1, GDT_Byte, nullptr));
   double geotrans[6];
@@ -350,7 +352,7 @@ void CreateRasterPyra(
   int x_size(dataset->GetRasterXSize()),
       y_size(dataset->GetRasterYSize()),
       downsample_factor(1),
-      min_pixels_count(256),
+      min_pixels_count(256), // The width and the height of the last pyramid are not less than 256
       overviews_count(0),
       overviews[16]{ 0 };
   while (DIV_ROUND_UP(x_size, downsample_factor) > min_pixels_count ||
@@ -387,6 +389,7 @@ RPCTransPtr CreateRPCTrans(
     RPCSource rpc_source) {
   GDALDatasetUniquePtr dataset(GDALDataset::Open(
       path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
+  if (!dataset) return RPCTransPtr(nullptr, nullptr);
   char** rpc_info_text;
   GDALRPCInfoV2 rpc_info;
   switch (rpc_source) {
@@ -397,10 +400,6 @@ RPCTransPtr CreateRPCTrans(
     case RPCSource::kRPBFile: {
       auto pos(static_cast<int>(path.rfind('.')));
       rpc_info_text = LoadRPBFile(path.substr(0, pos) + ".rpb");
-      break;
-    }
-    case RPCSource::kRPCFile: {
-      break;
     }
   }
   GDALExtractRPCInfoV2(rpc_info_text, &rpc_info);
@@ -410,11 +409,11 @@ RPCTransPtr CreateRPCTrans(
 }
 
 int DateMatching(const std::string& string) {
-  std::regex r(
+  std::regex reg(
       "20[0-9]{2}((0[1-9]|1[0-2])"
       "(0[1-9]|1[0-9]|2[0-8])|(0[13-9]|1[0-2])(29|30)|(0[13578]|1[02])31)");
   std::smatch result;
-  if (std::regex_search(string, result, r)) {
+  if (std::regex_search(string, result, reg)) {
     return std::stoi(result.str());
   } else {
     return 0;
@@ -428,14 +427,14 @@ OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry) {
   if (geometry->getGeometryType() == wkbPolygon)
     return OGRGeometryUniquePtr(geometry->clone());
   double area;
-  std::pair<int, double> geometry_max(-1, -1.);
+  std::pair<int, double> max_geometry(-1, -1.);
   for (int i = 0; i < geometry->toMultiPolygon()->getNumGeometries(); i++) {
     area = geometry->toMultiPolygon()->getGeometryRef(i)->get_Area();
-    if (area > geometry_max.second)
-      geometry_max = { i, area };
+    if (area > max_geometry.second)
+      max_geometry = { i, area };
   }
   return OGRGeometryUniquePtr(
-      geometry->toMultiPolygon()->getGeometryRef(geometry_max.first)->clone());
+      geometry->toMultiPolygon()->getGeometryRef(max_geometry.first)->clone());
 }
 
 std::string GetDate() {
@@ -459,17 +458,17 @@ void InitGdal(const std::string& app_path) {
 }
 
 void InitSpdlog(
-    const std::string& logger_name,
-    spdlog::level::level_enum log_level) {
+    const std::string& name,
+    spdlog::level::level_enum level) {
   auto console_sink(std::make_shared<spdlog::sinks::stdout_color_sink_mt>());
   console_sink->set_level(spdlog::level::info);
   auto file_sink(std::make_shared<spdlog::sinks::basic_file_sink_mt>(
-      "logs/" + logger_name + "-" + GetDate() + ".txt", true));
+      "logs/" + name + "-" + GetDate() + ".txt", true));
   file_sink->set_level(spdlog::level::debug);
   spdlog::set_default_logger(std::make_shared<spdlog::logger>(
-      logger_name, spdlog::sinks_init_list({ console_sink, file_sink })));
+      name, spdlog::sinks_init_list({ console_sink, file_sink })));
   spdlog::default_logger()->flush_on(spdlog::level::debug);
-  spdlog::set_level(log_level);
+  spdlog::set_level(level);
 }
 
 std::map<std::string, std::string> rpb_names{
@@ -516,8 +515,6 @@ char** LoadRPBFile(const std::string& rpb_path) {
 cv::Mat TransformMat(
     const cv::Mat& source_mat,
     const cv::Mat& lut_mat) {
-  assert(lut_mat.rows == std::pow(256, source_mat.elemSize1()));
-
   cv::Mat output_mat(source_mat.size(), source_mat.type());
   if (lut_mat.depth() == CV_8U) {
     cv::LUT(source_mat, lut_mat, output_mat);
@@ -541,11 +538,11 @@ cv::Mat TransformMat(
 
 void WarpByGeometry(
     const std::vector<GDALDataset*>& source_rasters_dataset,
-    GDALDataset* result_raster_dataset,
+    GDALDataset* output_raster_dataset,
     OGRGeometry* geometry,
     GDALResampleAlg resample_arg,
     double nodata_value) {
-  int bands_count(result_raster_dataset->GetRasterCount());
+  int bands_count(output_raster_dataset->GetRasterCount());
   auto bands_map(std::make_unique<int[]>(bands_count));
   auto bands_nodata(std::make_unique<double[]>(bands_count));
   for (int b = 0; b < bands_count; b++) {
@@ -557,7 +554,7 @@ void WarpByGeometry(
   std::unique_ptr<GDALWarpOptions> warp_options(GDALCreateWarpOptions());
   warp_options->eResampleAlg = resample_arg;
   warp_options->eWorkingDataType = GDT_Byte;
-  warp_options->hDstDS = result_raster_dataset;
+  warp_options->hDstDS = output_raster_dataset;
   warp_options->nBandCount = bands_count;
   warp_options->panSrcBands = bands_map.get();
   warp_options->panDstBands = bands_map.get();
@@ -572,7 +569,7 @@ void WarpByGeometry(
   GDALWarpOperation warp_operation;
   for (const auto& source_raster_dataset : source_rasters_dataset) {
     trans_arg.reset(GDALCreateGenImgProjTransformer2(
-        source_raster_dataset, result_raster_dataset, nullptr));
+        source_raster_dataset, output_raster_dataset, nullptr));
     OGRGeometryUniquePtr cutline_geometry(nullptr);
     if (geometry) {
       double geotrans[6], inv_geotrans[6];
@@ -585,8 +582,8 @@ void WarpByGeometry(
     warp_options->pTransformerArg = trans_arg.get();
     warp_operation.Initialize(warp_options.get());
     warp_operation.ChunkAndWarpMulti(
-        0, 0, result_raster_dataset->GetRasterXSize(),
-        result_raster_dataset->GetRasterYSize());
+        0, 0, output_raster_dataset->GetRasterXSize(),
+        output_raster_dataset->GetRasterYSize());
   }
 }
 

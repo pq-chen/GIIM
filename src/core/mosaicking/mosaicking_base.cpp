@@ -39,7 +39,7 @@ bool MosaickingBase::Run(
         "Please check whether the raster is DOM", raster_path);
     return false;
   }
-  utils::CreateRasterPyra(source_raster_dataset.get(), "NONE");
+  utils::CreateRasterPyra(source_raster_dataset.get());
   OGRGeometryUniquePtr 
       source_border(utils::CreateBorderGeometry(source_raster_dataset.get())),
       new_covered_polygon(source_border->clone());
@@ -307,9 +307,9 @@ void MosaickingBase::AddSeamline(
       break;
     }
   spdlog::debug("Updating the source border with the seamline - done");
-  std::vector<std::pair<int, OGRGeometryUniquePtr>> dislocated_geometries;
+  std::vector<std::pair<GIntBig, OGRGeometryUniquePtr>> dislocated_geometries;
   for (auto& composite_table_feature : composite_table_layer) {
-    int id(static_cast<int>(composite_table_feature->GetFID()));
+    GIntBig id(composite_table_feature->GetFID());
     OGRGeometry* composite_table_geometry(
         composite_table_feature->GetGeometryRef());
     if (covered_geometry->Intersect(composite_table_geometry)) {
@@ -318,8 +318,8 @@ void MosaickingBase::AddSeamline(
       if (diff_geometry->getGeometryType() == wkbPolygon) {
         dislocated_geometries.emplace_back(id, diff_geometry->clone());
       } else {
-        double max_area(0.0);
         bool be_head(true);
+        double max_area(0.0);
         for (const auto& geometry : diff_geometry->toMultiPolygon()) {
           dislocated_geometries.emplace_back(id, geometry->clone());
           if (!be_head && geometry->get_Area() < max_area) {
