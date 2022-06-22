@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include <rs-toolset/pansharpening.h>
 
@@ -15,7 +16,11 @@ namespace pansharpening {
 
 class PansharpeningBase : virtual public PansharpeningInterface {
  public:
-  PansharpeningBase(int block_size) : block_size_(block_size) {}
+  PansharpeningBase(int block_size) : block_size_(block_size) {
+    spdlog::info(
+        "Initializing the basic pansharpening with\nBlock size: {}",
+        block_size);
+  }
   PansharpeningBase(const PansharpeningBase&) = delete;
   PansharpeningBase& operator=(const PansharpeningBase&) = delete;
   virtual ~PansharpeningBase() = default;

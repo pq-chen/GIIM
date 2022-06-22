@@ -40,6 +40,7 @@ bool PercentClipImpl::AddMultiBlock(const cv::Mat& mat) {
 void PercentClipImpl::CreateThresholds(
     std::vector<int>& low_thres,
     std::vector<int>& high_thres) {
+  spdlog::debug("Creating thresholds");
   int bands_count(static_cast<int>(hist_mats_.size()));
   low_thres.resize(bands_count);
   high_thres.resize(bands_count);
@@ -67,6 +68,7 @@ void PercentClipImpl::CreateThresholds(
 
   // Clear histogram mats after creating thresholds
   hist_mats_.resize(0);
+  spdlog::info("Creating thresholds - done");
 }
 
 std::shared_ptr<PercentClip> PercentClip::Create(

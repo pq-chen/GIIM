@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include <map>
+#include <memory>
 #include <vector>
 #include <utility>
 
@@ -172,12 +173,14 @@ void GraphCutImpl::CreateSeamlineGeometries(
     label0_geometry.reset(OGRGeometryFactory::forceToPolygon(
         label0_outer_boundary));
   }
-  OGRFeatureUniquePtr label0_feature(OGRFeature::CreateFeature(
-      seamline_layer->GetLayerDefn()));
-  label0_feature->SetGeometry(label0_geometry.get());
-  label0_feature->SetField(0, 100);
-  seamline_layer->CreateFeature(label0_feature.get());
-  spdlog::debug("Creating the label0 feature for the seamline layer - done");
+  if (seamline_layer) {
+    OGRFeatureUniquePtr label0_feature(OGRFeature::CreateFeature(
+        seamline_layer->GetLayerDefn()));
+    label0_feature->SetGeometry(label0_geometry.get());
+    label0_feature->SetField(0, 100);
+    seamline_layer->CreateFeature(label0_feature.get());
+    spdlog::debug("Creating the label0 feature for the seamline layer - done");
+  }
   label1_geometry.reset(
       polygonized_layer->GetFeature(label1_max.first)->GetGeometryRef()
       ->clone());
@@ -188,12 +191,14 @@ void GraphCutImpl::CreateSeamlineGeometries(
     label1_geometry.reset(OGRGeometryFactory::forceToPolygon(
         label1_outer_boundary));
   }
-  OGRFeatureUniquePtr label1_feature(OGRFeature::CreateFeature(
-      seamline_layer->GetLayerDefn()));
-  label1_feature->SetGeometry(label1_geometry.get());
-  label1_feature->SetField(0, 200);
-  seamline_layer->CreateFeature(label1_feature.get());
-  spdlog::debug("Creating the label1 feature for the seamline layer - done");
+  if (seamline_layer) {
+    OGRFeatureUniquePtr label1_feature(OGRFeature::CreateFeature(
+        seamline_layer->GetLayerDefn()));
+    label1_feature->SetGeometry(label1_geometry.get());
+    label1_feature->SetField(0, 200);
+    seamline_layer->CreateFeature(label1_feature.get());
+    spdlog::debug("Creating the label1 feature for the seamline layer - done");
+  }
   spdlog::debug("Creating seamline geometries - done");
 }
 

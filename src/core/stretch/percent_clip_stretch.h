@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include <rs-toolset/stretch.h>
 #include "stretch_base.h"
@@ -19,8 +20,11 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
   PercentClipImpl(
       double low_percent,
       double high_percent) 
-      : low_percent_(low_percent),
-        high_percent_(high_percent) {}
+      : low_percent_(low_percent), high_percent_(high_percent) {
+    spdlog::info(
+        "Creating the percent clip stretch with\nLow percent: {}\n"
+        "High percent: {}", low_percent_, high_percent_);
+  }
   PercentClipImpl(const PercentClipImpl&) = delete;
   PercentClipImpl& operator=(const PercentClipImpl&) = delete;
   ~PercentClipImpl() = default;

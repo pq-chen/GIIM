@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include <rs-toolset/stretch.h>
 
@@ -42,6 +43,7 @@ bool StandardDeviationImpl::AddMultiBlock(const cv::Mat& mat) {
 void StandardDeviationImpl::CreateThresholds(
     std::vector<int>& low_thres,
     std::vector<int>& high_thres) {
+  spdlog::debug("Creating thresholds");
   int bands_count(static_cast<int>(pixels_counts_.size()));
   std::vector<double> means(sums_);
   std::vector<double> stddevs(square_sums_);
@@ -64,6 +66,7 @@ void StandardDeviationImpl::CreateThresholds(
   pixels_counts_.resize(0);
   sums_.resize(0);
   square_sums_.resize(0);
+  spdlog::info("Creating thresholds - done");
 }
 
 std::shared_ptr<StandardDeviation> StandardDeviation::Create(

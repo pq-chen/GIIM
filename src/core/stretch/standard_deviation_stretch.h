@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include <rs-toolset/stretch.h>
 #include "stretch_base.h"
@@ -17,7 +18,10 @@ namespace stretch {
 class StandardDeviationImpl final 
     : public StretchBase, public StandardDeviation {
  public:
-  StandardDeviationImpl(double scale) : scale_(scale) {}
+  StandardDeviationImpl(double scale) : scale_(scale) {
+    spdlog::info(
+        "Creating the standard deviation stretch with\nScale: {}", scale);
+  }
   StandardDeviationImpl(const StandardDeviationImpl&) = delete;
   StandardDeviationImpl& operator=(const StandardDeviationImpl&) = delete;
   ~StandardDeviationImpl() = default;

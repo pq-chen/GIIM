@@ -58,7 +58,7 @@ class RS_TOOLSET_API StretchInterface {
 class RS_TOOLSET_API PercentClip : virtual public StretchInterface {
  public:
   /// <summary>
-  /// Create PercentClip shared pointer
+  /// Create percent clip stretch shared pointer
   /// </summary>
   /// <param name="low_percent">The low percent trunction</param>
   /// <param name="high_percent">The high percent trunction</param>
@@ -77,7 +77,7 @@ class RS_TOOLSET_API PercentClip : virtual public StretchInterface {
 class RS_TOOLSET_API StandardDeviation :virtual public StretchInterface {
  public:
   /// <summary>
-  /// Create StandardDeviationp shared pointer
+  /// Create standard deviation stretch shared pointer
   /// </summary>
   /// <param name="scale">The trunction scale</param>
   /// <returns>The output StandardDeviationp shared pointer</returns>

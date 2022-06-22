@@ -10,6 +10,7 @@
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 #include <opencv2/opencv.hpp>
+#include <spdlog/spdlog.h>
 
 #include "mosaicking_base.h"
 #include <rs-toolset/mosaicking.h>
@@ -24,7 +25,12 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       double grad_exp,
       double min_diff,
       double max_diff)
-      : grad_exp_(grad_exp), min_diff_(min_diff), max_diff_(max_diff) {}
+      : grad_exp_(grad_exp), min_diff_(min_diff), max_diff_(max_diff) {
+    spdlog::info(
+        "Creating the graph cut mosaicking with\nGradient exponential: {}\n"
+        "Minimum difference: {}\nMaximum difference: {}", grad_exp, min_diff,
+        max_diff);
+  }
   GraphCutImpl(const GraphCutImpl&) = delete;
   GraphCutImpl& operator=(const GraphCutImpl&) = delete;
   ~GraphCutImpl() = default;

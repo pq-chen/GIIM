@@ -349,6 +349,7 @@ void CreateRasterPyra(
   if (clean)
     dataset->BuildOverviews("", 0, nullptr, 0, nullptr, nullptr, nullptr);
   if (dataset->GetRasterBand(1)->GetOverviewCount() != 0) return;
+  spdlog::info("Creating raster pyramids");
   int x_size(dataset->GetRasterXSize()),
       y_size(dataset->GetRasterYSize()),
       downsample_factor(1),
@@ -362,6 +363,7 @@ void CreateRasterPyra(
   }
   dataset->BuildOverviews(
       "NEAREST", overviews_count, overviews, 0, nullptr, nullptr, nullptr);
+  spdlog::info("Creating raster pyramids - done");
 }
 
 void CreateRange(

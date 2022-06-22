@@ -24,7 +24,9 @@ bool MosaickingBase::Run(
     OGRGeometry* covered_border,
     const std::string& raster_path,
     bool with_seamline) {
-  spdlog::info("Adding a task from {}", raster_path);
+  spdlog::info(
+      "Running a mosaicking task from\nRaster path: {}\nWith seamline: {}",
+      raster_path, with_seamline);
   GDALDatasetUniquePtr source_raster_dataset(GDALDataset::Open(
       raster_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
   if (!source_raster_dataset) {
@@ -92,13 +94,15 @@ bool MosaickingBase::Run(
                 "Initializing overlap geometries for the last overview");
             if (source_border->Contains(covered_polygon)) {
               spdlog::debug(
-                  "Initializing overlap geometries in the encirclement case");
+                  "Initializing overlap geometries in the surrounded case");
               covered_overlap_geometry.reset(covered_polygon->clone());
               new_overlap_geometry.reset(covered_overlap_geometry->Buffer(
                   -5 * downsample_factor * geotrans[1]));
               new_overlap_geometry.reset(source_border->Difference(
                   new_overlap_geometry.get()));
             } else {
+              spdlog::debug(
+                  "Initializing overlap geometries in the overlap case");
               covered_overlap_geometry.reset(
                   source_border->Intersection(covered_polygon));
               covered_overlap_geometry.reset(covered_overlap_geometry->Buffer(
@@ -151,7 +155,7 @@ bool MosaickingBase::Run(
   composite_table_layer->CreateFeature(composite_table_feature.get());
   source_border.release();
   spdlog::debug("Creating the feature with the source border - done");
-  spdlog::info("Adding a task from {} - done", raster_path);
+  spdlog::info("Running a mosaicking task - done");
   return true;
 }
 

@@ -23,6 +23,14 @@ bool ComponentSubstitutionBase::Run(
     bool use_rpc,
     bool use_stretch,
     const std::vector<int>& pansharpened_bands_map) {
+  std::string fmt(
+      "Running a pansharpening task from\nPAN path: {}\nMS path: {}\n"
+      "Pansharpened_path: {}\nUse rpc: {}\nUse stretch: {}\n"
+      "Pansharpened bands' map: ");
+  for (const auto& idx : pansharpened_bands_map)
+    fmt.append(std::to_string(idx)).append(",");
+  fmt.pop_back();
+  spdlog::info(fmt, pan_path, ms_path, pansharpened_path, use_rpc, use_stretch);
   GDALDatasetUniquePtr 
       pan_dataset(GDALDataset::Open(
           pan_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)),
@@ -240,6 +248,7 @@ bool ComponentSubstitutionBase::Run(
   }
   spdlog::info(
       "Writing the pansharpened image into {} - done", pansharpened_path);
+  spdlog::info("Running a pansharpening task - done");
   return true;
 }
 
