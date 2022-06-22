@@ -10,7 +10,7 @@ namespace stretch {
 
 bool StretchBase::Run(std::vector<cv::Mat>& mats) {
   std::vector<int> low_thres, high_thres;
-  CreateThreshold(low_thres, high_thres);
+  CreateThresholds(low_thres, high_thres);
   int bands_count(static_cast<int>(mats.size()));
   std::vector<double> means(bands_count);
 #pragma omp parallel for schedule(static, bands_count)

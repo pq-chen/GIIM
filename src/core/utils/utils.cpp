@@ -111,7 +111,7 @@ OGRGeometryUniquePtr CreateBorderGeometry(
 
   // Find the biggeest geometry among all features with label 255
   double area;
-  std::pair<GIntBig, double> max_geometry(-1, -1.);
+  std::pair<GIntBig, double> max_geometry(-1, -1.0);
   for (const auto& border_feature : border_layer)
     if (border_feature->GetFieldAsInteger(0) == 255) {
       area = border_feature->GetGeometryRef()->toPolygon()->get_Area();
@@ -193,10 +193,10 @@ cv::Mat CreateHistLUT(
   for (int b = 0; b < bands_count; b++) {
     // Normalize histogram mats to create cumulative distribution functions
     _source_hist_mat = source_hist_mats[b].clone();
-    _source_hist_mat.at<float>(0) = 0;
+    _source_hist_mat.at<float>(0) = 0.0;
     cv::normalize(_source_hist_mat, _source_hist_mat, 1.0, 0.0, cv::NORM_L1);
     _target_hist_mat = target_hist_mats[b].clone();
-    _target_hist_mat.at<float>(0) = 0;
+    _target_hist_mat.at<float>(0) = 0.0;
     cv::normalize(_target_hist_mat, _target_hist_mat, 1.0, 0.0, cv::NORM_L1);
     auto source_cdf(std::make_unique<float[]>(_source_hist_mat.rows)),
         target_cdf(std::make_unique<float[]>(_target_hist_mat.rows));
@@ -427,7 +427,7 @@ OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry) {
   if (geometry->getGeometryType() == wkbPolygon)
     return OGRGeometryUniquePtr(geometry->clone());
   double area;
-  std::pair<int, double> max_geometry(-1, -1.);
+  std::pair<int, double> max_geometry(-1, -1.0);
   for (int i = 0; i < geometry->toMultiPolygon()->getNumGeometries(); i++) {
     area = geometry->toMultiPolygon()->getGeometryRef(i)->get_Area();
     if (area > max_geometry.second)

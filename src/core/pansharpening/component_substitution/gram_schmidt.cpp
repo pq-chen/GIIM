@@ -28,9 +28,9 @@ void GramSchmidtImpl::UpdateStatistic(
   synthetic_low_reso_pan_mat.convertTo(
       synthetic_low_reso_pan_mat, data.mat.type());
   std::vector<cv::Mat> 
-      cur_pan_hist_mat(utils::CalcHist(data.mat, cv::Mat())),
+      cur_pan_hist_mat(utils::CalcHist(data.mat)),
       cur_synthetic_low_reso_pan_hist_mat(utils::CalcHist(
-          synthetic_low_reso_pan_mat, cv::Mat()));
+          synthetic_low_reso_pan_mat));
   if (_s->pan_hist_mat.empty()) {
     _s->pan_hist_mat.push_back(cur_pan_hist_mat[0]);
     _s->synthetic_low_reso_pan_hist_mat.push_back(

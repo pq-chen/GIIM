@@ -22,26 +22,22 @@ class StandardDeviationImpl final
   StandardDeviationImpl& operator=(const StandardDeviationImpl&) = delete;
   ~StandardDeviationImpl() = default;
 
-  void AddBlock(
+  bool AddSingleBlock(
       const cv::Mat& mat,
-      int idx) override;
-
-  void SetScale(double scale) override {
-    scale_ = scale;
-  }
-  void GetScale(double& scale) override {
-    scale = scale_;
-  }
+      int band) override;
+  bool AddMultiBlock(const cv::Mat& mat) override;
+  void SetScale(double scale) override { scale_ = scale; }
+  void GetScale(double& scale) override { scale = scale_; }
 
  protected:
-  void CreateThreshold(
+  void CreateThresholds(
       std::vector<int>& low_thres,
       std::vector<int>& high_thres) override;
 
  private:
-  std::vector<int> pixels_counts_;
-  std::vector<double> sums_;
-  std::vector<double> square_sums_;
+  std::vector<int> pixels_counts_; // Valid pixels count
+  std::vector<double> sums_; // Valid pixels sums
+  std::vector<double> square_sums_; // Valid pixels square sums
 
   double scale_;
 };

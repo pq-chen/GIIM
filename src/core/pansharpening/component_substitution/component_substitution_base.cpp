@@ -197,7 +197,7 @@ bool ComponentSubstitutionBase::Run(
       data.mats[b].copyTo(pansharpened_mats[b](rect));
       pansharpened_mats[b](rect) += injection_gains[b] * delta_mats[b];
       if (use_stretch)
-        stretch->AddBlock(pansharpened_mats[b](rect), b);
+        stretch->AddSingleBlock(pansharpened_mats[b](rect), b);
     }
     spdlog::info(
         "---------- {}/{} - done ----------", i + 1,

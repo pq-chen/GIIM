@@ -45,11 +45,11 @@ RS_TOOLSET_API OGRGeometryUniquePtr ApplyGeoTransToPolygon(
 /// Calculate histogram mats of the given mat
 /// </summary>
 /// <param name="mat">The given mat</param>
-/// <param name="mask_mat">The mask mat</param>
+/// <param name="mask_mat">The mask mat, default is empty mat</param>
 /// <returns>Histogram mats</returns>
 RS_TOOLSET_API std::vector<cv::Mat> CalcHist(
     const cv::Mat& mat,
-    const cv::Mat& mask_mat);
+    const cv::Mat& mask_mat = cv::Mat());
 
 /// <summary>
 /// Create the border geometry for the given source raster dataset
@@ -293,7 +293,7 @@ inline void CalculateInterpolations(
         }
       }
       interpolations[bands_count * i + b] = static_cast<T>(
-          sum_weight != 0. ? round(sum_value / sum_weight) : nodata_value);
+          sum_weight != 0.0 ? round(sum_value / sum_weight) : nodata_value);
     }
   }
 }
