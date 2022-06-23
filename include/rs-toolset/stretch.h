@@ -53,16 +53,16 @@ class RS_TOOLSET_API StretchInterface {
 };
 
 /// <summary>
-/// Percent clip stretch
+/// Percent clip stretch class
 /// </summary>
 class RS_TOOLSET_API PercentClip : virtual public StretchInterface {
  public:
   /// <summary>
-  /// Create percent clip stretch shared pointer
+  /// Create the percent clip stretch shared pointer
   /// </summary>
   /// <param name="low_percent">The low percent trunction</param>
   /// <param name="high_percent">The high percent trunction</param>
-  /// <returns>The output PercentClip shared pointer</returns>
+  /// <returns>The output percent clip shared pointer</returns>
   static std::shared_ptr<PercentClip> Create(
       double low_percent,
       double high_percent);
@@ -72,15 +72,15 @@ class RS_TOOLSET_API PercentClip : virtual public StretchInterface {
 };
 
 /// <summary>
-/// Standard deviation stretch
+/// Standard deviation stretch class
 /// </summary>
 class RS_TOOLSET_API StandardDeviation :virtual public StretchInterface {
  public:
   /// <summary>
-  /// Create standard deviation stretch shared pointer
+  /// Create the standard deviation stretch shared pointer
   /// </summary>
   /// <param name="scale">The trunction scale</param>
-  /// <returns>The output StandardDeviationp shared pointer</returns>
+  /// <returns>The output standard deviation shared pointer</returns>
   static std::shared_ptr<StandardDeviation> Create(double scale);
 
   virtual void SetScale(double scale) = 0;

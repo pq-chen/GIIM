@@ -25,8 +25,8 @@ bool MosaickingBase::Run(
     const std::string& raster_path,
     bool with_seamline) {
   spdlog::info(
-      "Running a mosaicking task from\nRaster path: {}\nWith seamline: {}",
-      raster_path, with_seamline);
+      "Running the mosaicking task from\n- Raster path: {}\n"
+      "- With seamline: {}", raster_path, with_seamline);
   GDALDatasetUniquePtr source_raster_dataset(GDALDataset::Open(
       raster_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
   if (!source_raster_dataset) {
@@ -59,7 +59,7 @@ bool MosaickingBase::Run(
       if (!source_border->Intersect(covered_polygon)) continue;
       if (covered_polygon->Contains(source_border.get())) {
         spdlog::info(
-            "Skipping adding a task "
+            "Skipping adding the task "
             "since the covered border contains the source border");
         return true;
       }
@@ -144,7 +144,7 @@ bool MosaickingBase::Run(
     _covered_border_->addGeometryDirectly(new_covered_polygon.get());
     new_covered_polygon.release();
     spdlog::debug("Updating the covered border - done");
-    spdlog::info("Adding a subtask from the intersected border - done");
+    spdlog::info("Adding the subtask from the intersected border - done");
   }
   OGRFeatureUniquePtr composite_table_feature(OGRFeature::CreateFeature(
       composite_table_layer->GetLayerDefn()));
@@ -155,7 +155,7 @@ bool MosaickingBase::Run(
   composite_table_layer->CreateFeature(composite_table_feature.get());
   source_border.release();
   spdlog::debug("Creating the feature with the source border - done");
-  spdlog::info("Running a mosaicking task - done");
+  spdlog::info("Running the mosaicking task - done");
   return true;
 }
 

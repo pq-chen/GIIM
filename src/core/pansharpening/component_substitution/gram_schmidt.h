@@ -57,7 +57,7 @@ class GramSchmidtImpl final
     return std::vector<double>(bands_count, 1. / bands_count);
   }
 
-  void UpdateStatistic(
+  void UpdateUpsampleInfo(
       const Data& data,
       const std::vector<double>& weights,
       void* s) override;

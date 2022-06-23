@@ -22,8 +22,8 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
       double high_percent) 
       : low_percent_(low_percent), high_percent_(high_percent) {
     spdlog::info(
-        "Creating the percent clip stretch with\nLow percent: {}\n"
-        "High percent: {}", low_percent_, high_percent_);
+        "Creating the percent clip stretch with\n- Low percent: {}\n"
+        "- High percent: {}", low_percent_, high_percent_);
   }
   PercentClipImpl(const PercentClipImpl&) = delete;
   PercentClipImpl& operator=(const PercentClipImpl&) = delete;
@@ -48,7 +48,7 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
       std::vector<int>& high_thres) override;
 
  private:
-  std::vector<cv::Mat> hist_mats_; // Histogram mats for all bands
+  std::vector<cv::Mat> hist_mats_;
 
   double low_percent_;
   double high_percent_;

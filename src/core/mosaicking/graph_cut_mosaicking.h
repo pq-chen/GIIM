@@ -27,9 +27,9 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       double max_diff)
       : grad_exp_(grad_exp), min_diff_(min_diff), max_diff_(max_diff) {
     spdlog::info(
-        "Creating the graph cut mosaicking with\nGradient exponential: {}\n"
-        "Minimum difference: {}\nMaximum difference: {}", grad_exp, min_diff,
-        max_diff);
+        "Creating the graph cut mosaicking with\n- Gradient exponential: {}\n"
+        "- Minimum difference: {}\n- Maximum difference: {}", grad_exp, 
+        min_diff, max_diff);
   }
   GraphCutImpl(const GraphCutImpl&) = delete;
   GraphCutImpl& operator=(const GraphCutImpl&) = delete;

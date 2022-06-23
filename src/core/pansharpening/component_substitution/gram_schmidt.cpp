@@ -12,13 +12,15 @@
 namespace rs_toolset {
 namespace pansharpening {
 
-void GramSchmidtImpl::UpdateStatistic(
+void GramSchmidtImpl::UpdateUpsampleInfo(
     const Data& data,
     const std::vector<double>& weights,
     void* s) {
   spdlog::debug("Updating the statistic struct");
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
+
+  // Create the synthetic low resolution PAN mat and mean
   cv::Mat synthetic_low_reso_pan_mat;
   data.mats[0].convertTo(synthetic_low_reso_pan_mat, CV_16SC1, weights[0]);
   double synthetic_low_reso_pan_mean(weights[0] * _s->upsampled_ms_means[0]);
@@ -28,6 +30,8 @@ void GramSchmidtImpl::UpdateStatistic(
   }
   synthetic_low_reso_pan_mat.convertTo(
       synthetic_low_reso_pan_mat, data.mat.type());
+
+  // Update histogram mats
   std::vector<cv::Mat> 
       cur_pan_hist_mat(utils::CalcHist(data.mat)),
       cur_synthetic_low_reso_pan_hist_mat(utils::CalcHist(
@@ -41,6 +45,8 @@ void GramSchmidtImpl::UpdateStatistic(
     _s->synthetic_low_reso_pan_hist_mat[0] +=
         cur_synthetic_low_reso_pan_hist_mat[0];
   }
+
+  // Update the other statistic
   _s->pixels_count += cv::countNonZero(data.mat);
   _s->synthetic_low_reso_pan_sum_ += cv::sum(synthetic_low_reso_pan_mat)[0];
   _s->synthetic_low_reso_pan_square_sum_ +=
@@ -80,7 +86,9 @@ std::vector<cv::Mat> GramSchmidtImpl::CreateDeltaMats(
   spdlog::debug("Creating the delta mats");
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
-  cv::Mat synthetic_low_reso_pan_mat, delta_mat;
+  cv::Mat delta_mat;
+
+  // The delta mat minus the synthetic low resolution PAN mat
   data.mats[0].convertTo(delta_mat, CV_16SC1, -weights[0]);
   for (int i = 1; i < bands_count; i++)
     delta_mat -= weights[i] * data.mats[i];
@@ -89,7 +97,8 @@ std::vector<cv::Mat> GramSchmidtImpl::CreateDeltaMats(
     cv::threshold(data.mat, constant_mat, 0, weights.back(), cv::THRESH_BINARY);
     delta_mat -= constant_mat;
   }
-  cv::Mat(-delta_mat).convertTo(synthetic_low_reso_pan_mat, CV_16UC1);
+
+  // The delta mat plus the histogram matched PAN mat
   delta_mat += utils::TransformMat(
       data.mat, utils::CreateHistLUT(
           _s->pan_hist_mat, _s->synthetic_low_reso_pan_hist_mat));

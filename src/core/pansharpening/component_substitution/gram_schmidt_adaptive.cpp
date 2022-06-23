@@ -24,19 +24,14 @@ void GramSchmidtAdaptiveImpl::UpdateDownsampleInfo(
   for (int row = 0; row < data.mat.rows; row ++) {
     for (int col = 0; col < data.mat.cols; col ++) {
       int idx(row * data.mat.cols + col);
-      bool nodata(false);
       if (data.mat.depth() == CV_8U) {
-        if (data.mat.at<uint8_t>(row, col) == 0)
-          nodata = true;
         for (int b = 0; b < data.mats.size(); b++)
-          _s->A(idx, b) = nodata ? 0 : data.mats[b].at<uint8_t>(row, col);
-        _s->b(idx) = nodata ? 0 : data.mat.at<uint8_t>(row, col);
+          _s->A(idx, b) = data.mats[b].at<uint8_t>(row, col);
+        _s->b(idx) = data.mat.at<uint8_t>(row, col);
       } else {
-        if (data.mat.at<uint16_t>(row, col) == 0)
-          nodata = true;
         for (int b = 0; b < data.mats.size(); b++)
-          _s->A(idx, b) = nodata ? 0 : data.mats[b].at<uint16_t>(row, col);
-        _s->b(idx) = nodata ? 0 : data.mat.at<uint16_t>(row, col);
+          _s->A(idx, b) = data.mats[b].at<uint16_t>(row, col);
+        _s->b(idx) = data.mat.at<uint16_t>(row, col);
       }
     }
   }
@@ -55,13 +50,15 @@ std::vector<double> GramSchmidtAdaptiveImpl::CreateWeights(void* s) {
   return weights;
 }
 
-void GramSchmidtAdaptiveImpl::UpdateStatistic(
+void GramSchmidtAdaptiveImpl::UpdateUpsampleInfo(
     const Data& data,
     const std::vector<double>& weights,
     void* s) {
   spdlog::debug("Updating the statistic struct");
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
+
+  // Create synthetic low resolution PAN mat and mean
   cv::Mat synthetic_low_reso_pan_mat;
   data.mats[0].convertTo(synthetic_low_reso_pan_mat, CV_16SC1, weights[0]);
   double synthetic_low_reso_pan_mean(weights[0] * _s->upsampled_ms_means[0]);
@@ -71,6 +68,8 @@ void GramSchmidtAdaptiveImpl::UpdateStatistic(
   }
   synthetic_low_reso_pan_mat.convertTo(
       synthetic_low_reso_pan_mat, data.mat.type());
+
+  // Update histogram mats
   std::vector<cv::Mat> 
       cur_pan_hist_mat(utils::CalcHist(data.mat)),
       cur_synthetic_low_reso_pan_hist_mat(utils::CalcHist(
@@ -84,6 +83,8 @@ void GramSchmidtAdaptiveImpl::UpdateStatistic(
     _s->synthetic_low_reso_pan_hist_mat[0] +=
         cur_synthetic_low_reso_pan_hist_mat[0];
   }
+
+  // Update the other statistic
   _s->upsample_pixels_count += cv::countNonZero(data.mat);
   _s->synthetic_low_reso_pan_sum_ += cv::sum(synthetic_low_reso_pan_mat)[0];
   _s->synthetic_low_reso_pan_square_sum_ +=
@@ -123,7 +124,9 @@ std::vector<cv::Mat> GramSchmidtAdaptiveImpl::CreateDeltaMats(
   spdlog::debug("Creating the delta mats");
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
-  cv::Mat synthetic_low_reso_pan_mat, delta_mat;
+  cv::Mat delta_mat;
+
+  // The delta mat minus the synthetic low resolution PAN mat
   data.mats[0].convertTo(delta_mat, CV_16SC1, -weights[0]);
   for (int i = 1; i < bands_count; i++)
     delta_mat -= weights[i] * data.mats[i];
@@ -132,7 +135,8 @@ std::vector<cv::Mat> GramSchmidtAdaptiveImpl::CreateDeltaMats(
     cv::threshold(data.mat, constant_mat, 0, weights.back(), cv::THRESH_BINARY);
     delta_mat -= constant_mat;
   }
-  cv::Mat(-delta_mat).convertTo(synthetic_low_reso_pan_mat, CV_16UC1);
+
+  // The delta mat plus the histogram matched PAN mat
   delta_mat += utils::TransformMat(
       data.mat, utils::CreateHistLUT(
           _s->pan_hist_mat, _s->synthetic_low_reso_pan_hist_mat));

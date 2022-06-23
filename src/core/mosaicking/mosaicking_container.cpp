@@ -37,7 +37,7 @@ MosaickingContainerImpl::MosaickingContainerImpl(
     : mosaicking_(mosaicking),
       covered_border_(OGRGeometryFactory::createGeometry(wkbMultiPolygon)) {
   spdlog::info(
-      "Creating the mosaicking container with\nSpatial reference name: {}",
+      "Creating the mosaicking container with\n- Spatial reference name: {}",
       spatial_ref->GetName());
   GDALDriver* memory_driver(GetGDALDriverManager()->GetDriverByName("Memory"));
   composite_table_dataset_ = memory_driver->Create(

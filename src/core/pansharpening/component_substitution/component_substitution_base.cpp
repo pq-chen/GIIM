@@ -24,9 +24,9 @@ bool ComponentSubstitutionBase::Run(
     bool use_stretch,
     const std::vector<int>& pansharpened_bands_map) {
   std::string fmt(
-      "Running a pansharpening task from\nPAN path: {}\nMS path: {}\n"
-      "Pansharpened_path: {}\nUse rpc: {}\nUse stretch: {}\n"
-      "Pansharpened bands' map: ");
+      "Running the pansharpening task from\n- PAN path: {}\n- MS path: {}\n"
+      "- Pansharpened_path: {}\n- Use RPC: {}\n- Use stretch: {}\n"
+      "- Pansharpened bands' map: ");
   for (const auto& idx : pansharpened_bands_map)
     fmt.append(std::to_string(idx)).append(",");
   fmt.pop_back();
@@ -75,7 +75,7 @@ bool ComponentSubstitutionBase::Run(
   RPCTransPtr pan_trans_arg(nullptr, nullptr), ms_trans_arg(nullptr, nullptr);
   if (use_rpc) {
     spdlog::info(
-        "Using the rpc information to create the mapping relation "
+        "Using the RPC information to create the mapping relation "
         "between the PAN and the MS image before orthorectification");
     pan_trans_arg = utils::CreateRPCTrans(pan_path, true),
     ms_trans_arg = utils::CreateRPCTrans(ms_path, false);
@@ -85,9 +85,10 @@ bool ComponentSubstitutionBase::Run(
         "between the PAN and the MS image after orthorectification");
   }
   void* s(CreateStatistic(bands_count, ms_x_size, ms_y_size));
+
+  // Update the downsample information
   if (need_downsample_info_) {
-    spdlog::info(
-        "Updating the statistic struct using the downsample information");
+    spdlog::info("Updating the downsample information in the statistic struct");
     int ms_block_cols_count(static_cast<int>(ceil(static_cast<double>(
             ms_x_size) / block_size_))),
         ms_block_rows_count(static_cast<int>(ceil(static_cast<double>(
@@ -109,8 +110,9 @@ bool ComponentSubstitutionBase::Run(
         block_size_, block_size_);
     for (int i = 0; i < ms_block_cols_count * ms_block_rows_count; i++) {
       Data data;
+      int ms_range[4];
       if (use_rpc) {
-        int pan_range[4], ms_range[4];
+        int pan_range[4];
         CreateRangesForRPC(
             i, ms_block_cols_count, ms_block_rows_count, block_size_,
             block_size_, last_ms_block_x_size, last_ms_block_y_size, pan_x_size,
@@ -119,13 +121,10 @@ bool ComponentSubstitutionBase::Run(
             pan_path, ms_path, pan_range, ms_range, _pan_trans_arg, 
             _ms_trans_arg);
       } else {
-        int target_range[4];
         utils::CreateRange(
             i, ms_block_cols_count, ms_block_rows_count, block_size_,
-            block_size_, last_ms_block_x_size, last_ms_block_y_size,
-            target_range);
-        data = CreateDownsampledDataWithGeotrans(
-            pan_path, ms_path, target_range);
+            block_size_, last_ms_block_x_size, last_ms_block_y_size, ms_range);
+        data = CreateDownsampledDataWithGeotrans(pan_path, ms_path, ms_range);
       }
       UpdateDownsampleInfo(data, s);
       spdlog::info(
@@ -133,19 +132,21 @@ bool ComponentSubstitutionBase::Run(
           ms_block_cols_count * ms_block_rows_count);
     }
     spdlog::info(
-        "Updating the statistic struct "
-        "using the downsample information - done");
+        "Updating the downsample information in the statistic struct - done");
   }
   std::vector<double> weights(CreateWeights(s));
-  spdlog::info("Updating the statistic struct using the upsample information");
+
+  // Update the upsample information
+  spdlog::info("Updating the statistic struct with the upsample information");
   spdlog::info(
       "Dividing the {}x{} PAN image into {} {}x{} blocks",
       pan_x_size, pan_y_size, pan_block_cols_count * pan_block_rows_count, 
       block_size_, block_size_);
   for (int i = 0; i < pan_block_cols_count * pan_block_rows_count; i++) {
     Data data;
+    int pan_range[4];
     if (use_rpc) {
-      int pan_range[4], ms_range[4];
+      int ms_range[4];
       CreateRangesForRPC(
           i, pan_block_cols_count, pan_block_rows_count, block_size_,
           block_size_, last_pan_block_x_size, last_pan_block_y_size, ms_x_size,
@@ -153,21 +154,22 @@ bool ComponentSubstitutionBase::Run(
       data = CreateUpsampledDataWithRPC(
           pan_path, ms_path, pan_range, ms_range, pan_trans_arg, ms_trans_arg);
     } else {
-      int target_range[4];
       utils::CreateRange(
           i, pan_block_cols_count, pan_block_rows_count, block_size_,
-          block_size_, last_pan_block_x_size, last_pan_block_y_size,
-          target_range);
-      data = CreateUpsampledDataWithGeotrans(pan_path, ms_path, target_range);
+          block_size_, last_pan_block_x_size, last_pan_block_y_size, pan_range);
+      data = CreateUpsampledDataWithGeotrans(pan_path, ms_path, pan_range);
     }
-    UpdateStatistic(data, weights, s);
+    UpdateUpsampleInfo(data, weights, s);
     spdlog::info(
         "---------- {}/{} - done ----------", i + 1,
         pan_block_cols_count * pan_block_rows_count);
   }
   spdlog::info(
-      "Updating the statistic struct using the upsample information - done");
+      "Updating the statistic struct with the upsample information - done");
   std::vector<double> injection_gains(CreateInjectionGains(s));
+
+  // Create pansharpened mats
+  spdlog::info("Creating the pansharpened image");
   std::vector<cv::Mat> pansharpened_mats(bands_count);
   for (auto& pansharpened_mat : pansharpened_mats)
     pansharpened_mat = cv::Mat(pan_y_size, pan_x_size, CV_16UC1);
@@ -176,7 +178,6 @@ bool ComponentSubstitutionBase::Run(
     spdlog::info("Stretching on the pansharpened image");
     stretch = stretch::PercentClip::Create(0.0025, 0.0025);
   }
-  spdlog::info("Creating the pansharpened image");
   spdlog::info(
       "Dividing {}x{} pansharpened image into {} {}x{} blocks",
       pan_x_size, pan_y_size, pan_block_cols_count* pan_block_rows_count,
@@ -213,6 +214,8 @@ bool ComponentSubstitutionBase::Run(
   }
   spdlog::info("Creating the pansharpened image - done");
   DestroyStatistic(s);
+
+  // Write the pansharpened mats into the given path
   GDALDataType pansharpened_dataset_type(pan_dataset_type);
   int pansharpened_bytes_count(bytes_count);
   if (use_stretch) {
@@ -247,8 +250,8 @@ bool ComponentSubstitutionBase::Run(
         pansharpened_bytes_count * pan_x_size);
   }
   spdlog::info(
-      "Writing the pansharpened image into {} - done", pansharpened_path);
-  spdlog::info("Running a pansharpening task - done");
+      "Writing the pansharpened mats into {} - done", pansharpened_path);
+  spdlog::info("Running the pansharpening task - done");
   return true;
 }
 

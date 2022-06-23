@@ -59,7 +59,7 @@ class GramSchmidtAdaptiveImpl final
 
   std::vector<double> CreateWeights(void* s) override;
 
-  void UpdateStatistic(
+  void UpdateUpsampleInfo(
       const Data& data,
       const std::vector<double>& weights,
       void* s) override;

@@ -12,25 +12,25 @@
 int main(int argc, char* argv[]) {
   cxxopts::Options options(
       "Pansharpening", 
-      "A pansharpening tool using the gram-schmidt adaptive algorithm to fuse "
-      "a panchromatic(PAN) and a multispectral(MS) image over the same area.");
+      "A pansharpening tool using the Gram-Schmidt adaptive algorithm to fuse "
+      "the panchromatic(PAN) raster and the multispectral(MS) raster over the "
+      "same area.");
   options.add_options()
       ("h,help", "Print usage")
-      ("pan", "The PAN image path", cxxopts::value<std::string>())
-      ("ms", "The MS image path", cxxopts::value<std::string>())
-      ("output", "The output pansharpened image path", 
+      ("pan", "The PAN raster path", cxxopts::value<std::string>())
+      ("ms", "The MS raster path", cxxopts::value<std::string>())
+      ("output", "The output pansharpened raster path", 
           cxxopts::value<std::string>())
-      ("disable-rpc", "Disable using the rpc information "
-          "if the PAN image and the MS image are both DOM", 
+      ("disable-rpc", "Disable using the RPC information "
+          "if the PAN raster and the MS raster are both DOM", 
           cxxopts::value<bool>()->default_value("false"))
-      ("disable-stretch", "Disable Stretching the pansharpened image",
+      ("disable-stretch", "Disable Stretching the pansharpened raster",
           cxxopts::value<bool>()->default_value("false"))
-      ("o,build-overviews", "Build overviews for the pansharpened image",
+      ("o,build-overviews", "Build overviews for the pansharpened raster",
           cxxopts::value<bool>()->default_value("true"))
-      ("bands-map", "The Bands' map from the MS image to "
-          "the output pansharpened image", 
-          cxxopts::value<std::vector<int>>())
-      ("block-size", "The block size used for dealing with images",
+      ("bands-map", "The Bands' map from the MS raster to the output "
+          "pansharpened raster", cxxopts::value<std::vector<int>>())
+      ("block-size", "The block size per operation",
           cxxopts::value<int>()->default_value("16384"))
       ("log-level", "Availalbe levels are trace(t), debug(d), info(i), warn(w),"
           " err(e), critical(c)", cxxopts::value<std::string>());

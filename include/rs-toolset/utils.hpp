@@ -62,7 +62,7 @@ RS_TOOLSET_API OGRGeometryUniquePtr CreateBorderGeometry(
     int overview_idx = 0);
 
 /// <summary>
-/// Creaet the raster dataset from the given mat
+/// Create the raster dataset from the given mat
 /// </summary>
 /// <param name="mat">The given mat</param>
 /// <param name="path">The raster dataset path</param>
@@ -102,10 +102,10 @@ RS_TOOLSET_API GDALDatasetUniquePtr CreateMaskRasterDataset(
     int overview_idx = 0);
 
 /// <summary>
-/// Creaet the mat from the given raster dataset
+/// Create the mat from the given raster dataset
 /// </summary>
 /// <param name="dataset">The given raster dataset</param>
-/// <param name="range">The range, default is nullptr means the full range</param>
+/// <param name="range">The raster range, default is nullptr means the full range</param>
 /// <param name="bands_count">The bands' count, default is 0 means all bands</param>
 /// <param name="bands_map">The bands' map, default is nullptr means all bands</param>
 /// <returns>The output mat</returns>
@@ -189,14 +189,14 @@ RS_TOOLSET_API OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry);
 RS_TOOLSET_API std::string GetDate();
 
 /// <summary>
-/// Initialize GDAL configuration and the proj.db file should be under the same directory with the application
+/// Initialize the GDAL configuration and the proj.db file should be under the same directory with the application
 /// </summary>
 /// <param name="app_path">The application path</param>
 /// <returns></returns>
 RS_TOOLSET_API void InitGdal(const std::string& app_path);
 
 /// <summary>
-/// Initialize Spdlog configuration
+/// Initialize the Spdlog configuration
 /// <param name="name">The logger name</param>
 /// <param name="level">The logger level, default is spdlog::level::info</param>
 /// <returns></returns>
@@ -205,7 +205,7 @@ RS_TOOLSET_API void InitSpdlog(
     spdlog::level::level_enum level = spdlog::level::info);
 
 /// <summary>
-/// Load RPB file to the RPB string list
+/// Load the RPB file into the RPB string list
 /// </summary>
 /// <param name="rpb_path">The RPB file path</param>
 /// <returns>The output RPB string list</returns>

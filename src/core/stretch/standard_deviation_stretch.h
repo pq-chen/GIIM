@@ -20,7 +20,7 @@ class StandardDeviationImpl final
  public:
   StandardDeviationImpl(double scale) : scale_(scale) {
     spdlog::info(
-        "Creating the standard deviation stretch with\nScale: {}", scale);
+        "Creating the standard deviation stretch with\n- Scale: {}", scale);
   }
   StandardDeviationImpl(const StandardDeviationImpl&) = delete;
   StandardDeviationImpl& operator=(const StandardDeviationImpl&) = delete;
@@ -39,9 +39,9 @@ class StandardDeviationImpl final
       std::vector<int>& high_thres) override;
 
  private:
-  std::vector<int> pixels_counts_; // Valid pixels count
-  std::vector<double> sums_; // Valid pixels sums
-  std::vector<double> square_sums_; // Valid pixels square sums
+  std::vector<int> pixels_counts_;
+  std::vector<double> sums_;
+  std::vector<double> square_sums_;
 
   double scale_;
 };

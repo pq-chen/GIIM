@@ -10,7 +10,7 @@ namespace rs_toolset {
 namespace stretch {
 
 bool StretchBase::Run(std::vector<cv::Mat>& mats) {
-  spdlog::info("Running a stretch task");
+  spdlog::info("Running the stretch task");
   std::vector<int> low_thres, high_thres;
   CreateThresholds(low_thres, high_thres);
   int bands_count(static_cast<int>(mats.size()));
@@ -20,7 +20,7 @@ bool StretchBase::Run(std::vector<cv::Mat>& mats) {
     cv::Mat((mats[b] - low_thres[b]) / (high_thres[b] - low_thres[b]) * 255.)
         .convertTo(mats[b], CV_8UC1);
   return true;
-  spdlog::info("Running a stretch task - done");
+  spdlog::info("Running the stretch task - done");
 }
 
 } // stretch 
