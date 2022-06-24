@@ -91,7 +91,7 @@ std::vector<cv::Mat> CalcHist(
 OGRGeometryUniquePtr CreateBorderGeometry(
     GDALDataset* source_raster_dataset,
     int overview_idx) {
-  // Create the mask raster dataset and initialize the mask vector dataset
+  // Create the mask raster dataset and the mask vector dataset
   GDALDriver* memory_driver(GetGDALDriverManager()->GetDriverByName("Memory"));
   GDALDatasetUniquePtr 
       mask_raster_dataset(CreateMaskRasterDataset(

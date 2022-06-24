@@ -218,7 +218,7 @@ std::vector<cv::Mat> PansharpeningBase::CreateResampledMatsWithRpc(
       ys[col] -= source_range[1];
     }
 
-    // Calculate all rows and columns' interpolation in the source mat
+    // Calculate all rows and columns' interpolations in the source mat
     if (source_mat.depth() == CV_8U) {
       utils::CalculateInterpolations<uint8_t>(
           source_mat, target_range[2], xs.get(), ys.get(),

@@ -22,7 +22,8 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
       double high_percent) 
       : low_percent_(low_percent), high_percent_(high_percent) {
     spdlog::info(
-        "Creating the percent clip stretch with\n- Low percent: {}\n"
+        "Creating the percent clip stretch with\n"
+        "- Low percent: {}\n"
         "- High percent: {}", low_percent_, high_percent_);
   }
   PercentClipImpl(const PercentClipImpl&) = delete;

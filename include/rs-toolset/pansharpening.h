@@ -32,7 +32,7 @@ class RS_TOOLSET_API PansharpeningInterface {
   /// <param name="pan_path">The PAN raster path</param>
   /// <param name="ms_path">The PAN raster path</param>
   /// <param name="pansharpened_path">The output pansharpened raster path</param>
-  /// <param name="use_rpc">Whether uses RPC information</param>
+  /// <param name="use_rpc">Whether uses the RPC information</param>
   /// <param name="use_stretch">Whether uses stretch for the pansharpened raster</param>
   /// <param name="pansharpened_bands_map">The Bands' map, default is empty means all bands</param>
   /// <returns>Running state</returns>
@@ -51,7 +51,7 @@ class RS_TOOLSET_API PansharpeningInterface {
 class RS_TOOLSET_API GramSchmidt : virtual public PansharpeningInterface {
  public:
   /// <summary>
-  /// Create Gram-Schmidt pansharpening shared pointer
+  /// Create the Gram-Schmidt pansharpening shared pointer
   /// </summary>
   /// <param name="block_size">The block size per operation</param>
   /// <returns>The output Gram-Schmidt pansharpening shared pointer</returns>
@@ -65,7 +65,7 @@ class RS_TOOLSET_API GramSchmidtAdaptive
     : virtual public PansharpeningInterface {
  public:
   /// <summary>
-  /// Create Gram-Schmidt adaptive pansharpening shared pointer
+  /// Create the Gram-Schmidt adaptive pansharpening shared pointer
   /// </summary>
   /// <param name="block_size">The block size per operation</param>
   /// <returns>The output Gram-Schmidt adaptive pansharpening shared pointer</returns>

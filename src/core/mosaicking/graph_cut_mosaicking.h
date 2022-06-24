@@ -22,14 +22,18 @@ namespace mosaicking {
 class GraphCutImpl final : public MosaickingBase, public GraphCut {
  public:
   GraphCutImpl(
-      double grad_exp,
-      double min_diff,
-      double max_diff)
-      : grad_exp_(grad_exp), min_diff_(min_diff), max_diff_(max_diff) {
+      double grad_term_exp,
+      double diff_term_low_trunc,
+      double diff_term_high_trunc)
+      : grad_term_exp_(grad_term_exp), 
+        diff_term_low_trunc_(diff_term_low_trunc), 
+        diff_term_high_trunc_(diff_term_high_trunc) {
     spdlog::info(
-        "Creating the graph cut mosaicking with\n- Gradient exponential: {}\n"
-        "- Minimum difference: {}\n- Maximum difference: {}", grad_exp, 
-        min_diff, max_diff);
+        "Creating the graph cut mosaicking with\n"
+        "- Gradient term exponential: {}\n"
+        "- Difference term low trunction: {}\n"
+        "- Difference term high trunction: {}", 
+        grad_term_exp, diff_term_low_trunc, diff_term_high_trunc);
   }
   GraphCutImpl(const GraphCutImpl&) = delete;
   GraphCutImpl& operator=(const GraphCutImpl&) = delete;
@@ -54,15 +58,15 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
   };
 
   void PrepareData(
-      GDALDataset* covered_raster_dataset,
-      GDALDataset* new_raster_dataset,
-      GDALDataset* seamline_raster_dataset,
+      GDALDataset* covered_overlap_dataset,
+      GDALDataset* new_overlap_dataset,
+      GDALDataset* label_raster_dataset,
       cv::Mat& covered_mat,
       cv::Mat& new_mat,
       cv::Mat& label_mat) override;
 
   void CreateSeamlineGeometries(
-      GDALDataset* new_raster_dataset,
+      GDALDataset* new_overlap_dataset,
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
       const cv::Mat& label_mat,
@@ -71,8 +75,16 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       OGRGeometryUniquePtr& label1_geometry,
       OGRLayer* seamline_layer) override;
 
-  cv::Mat CreateLumiData(GDALDataset* dataset);
+  /// <summary>
+  /// Create the lightness mat from the given dataset
+  /// </summary>
+  /// <param name="dataset">The given dataset</param>
+  /// <returns>The output lightness mat</returns>
+  cv::Mat CreateLightnessMat(GDALDataset* dataset);
 
+  /// <summary>
+  /// Calculate the smooth cost in the graph cut algorithm
+  /// </summary>
   static int SmoothCost(
       int site1,
       int site2,
@@ -80,9 +92,9 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       int label2,
       void* extra_data);
 
-  double grad_exp_;
-  double min_diff_;
-  double max_diff_;
+  double grad_term_exp_;
+  double diff_term_low_trunc_;
+  double diff_term_high_trunc_;
 };
 
 } // mosaicking  

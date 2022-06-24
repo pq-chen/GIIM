@@ -20,13 +20,14 @@ MosaickingBase::MosaickingBase()
       memory_driver_(GetGDALDriverManager()->GetDriverByName("Memory")) {}
 
 bool MosaickingBase::Run(
+    const std::string& raster_path,
     OGRLayer* composite_table_layer,
     OGRGeometry* covered_border,
-    const std::string& raster_path,
-    bool with_seamline) {
+    bool use_seamline) {
   spdlog::info(
-      "Running the mosaicking task from\n- Raster path: {}\n"
-      "- With seamline: {}", raster_path, with_seamline);
+      "Running the mosaicking task from\n"
+      "- Raster path: {}\n"
+      "- Use seamline: {}", raster_path, use_seamline);
   GDALDatasetUniquePtr source_raster_dataset(GDALDataset::Open(
       raster_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
   if (!source_raster_dataset) {
@@ -42,21 +43,30 @@ bool MosaickingBase::Run(
     return false;
   }
   utils::CreateRasterPyra(source_raster_dataset.get());
+
+  // Create the source border for the source raster dataset
   OGRGeometryUniquePtr 
       source_border(utils::CreateBorderGeometry(source_raster_dataset.get())),
       new_covered_polygon(source_border->clone());
   if (covered_border->IsEmpty() || !source_border->Intersect(covered_border)) {
+    // Continue the loop for the no intersection situation
     spdlog::info(
-        "Skipping updating the source border and the composite table layer"
-        "for no intersection situation");
+        "Skipping updating the source border and the composite table layer "
+        "for the no intersection situation");
     covered_border->toMultiPolygon()->addGeometryDirectly(
         source_border->clone());
     spdlog::debug("Updating the covered border - done");
   } else {
     OGRMultiPolygon* _covered_border_(covered_border->toMultiPolygon());
+
+    // Traverse all polygons in the covered border
     for (int i = _covered_border_->getNumGeometries() - 1; i >= 0; i--) {
       OGRGeometry* covered_polygon(_covered_border_->getGeometryRef(i));
+
+      // Continue the loop for the no intersection situation 
       if (!source_border->Intersect(covered_polygon)) continue;
+
+      // Exit for the covered situation 
       if (covered_polygon->Contains(source_border.get())) {
         spdlog::info(
             "Skipping adding the task "
@@ -64,9 +74,11 @@ bool MosaickingBase::Run(
         return true;
       }
       spdlog::info("Adding a subtask from the intersected border");
-      if (with_seamline) {
+      if (use_seamline) {
         spdlog::debug("Creating the seamline vector");
-        spdlog::debug("Initializing the seamline layer");
+
+        // Create the seamline layer
+        spdlog::debug("Creating the seamline layer");
         GDALDatasetUniquePtr seamline_vector_dataset(
             memory_driver_->Create("", 0, 0, 0, GDT_Unknown, nullptr));
         OGRLayer* seamline_layer(seamline_vector_dataset->CreateLayer(
@@ -74,7 +86,9 @@ bool MosaickingBase::Run(
                 source_raster_dataset->GetSpatialRef()), wkbPolygon));
         OGRFieldDefn label_field("label", OFTInteger);
         seamline_layer->CreateField(&label_field);
-        spdlog::debug("Initializing the seamline layer - done");
+        spdlog::debug("Creating the seamline layer - done");
+
+        // Prepare data structures
         GDALDatasetUniquePtr
             covered_overlap_dataset(nullptr),
             new_overlap_dataset(nullptr),
@@ -89,6 +103,8 @@ bool MosaickingBase::Run(
           spdlog::debug(
               "Operating on the {} times downsampled overview", 
               downsample_factor);
+
+          // Create overlap geometries in the first operation
           if (!covered_overlap_geometry) {
             spdlog::debug(
                 "Initializing overlap geometries for the last overview");
@@ -117,7 +133,7 @@ bool MosaickingBase::Run(
               covered_overlap_geometry.get(), new_overlap_geometry.get(),
               covered_overlap_dataset, new_overlap_dataset,
               label_raster_dataset, downsample_factor);
-          UpdateOverlapGeometries(
+          UpdateLabelRasterDataset(
               covered_overlap_dataset.get(), new_overlap_dataset.get(), 
               label_raster_dataset, covered_overlap_geometry,
               new_overlap_geometry, i ? nullptr : seamline_layer, i);
@@ -126,7 +142,7 @@ bool MosaickingBase::Run(
               downsample_factor);
         }
         spdlog::debug("Creating the seamline vector - done");
-        AddSeamline(composite_table_layer, seamline_layer, source_border);
+        AddSeamline(seamline_layer, composite_table_layer, source_border);
       } else {
         spdlog::debug("Updating the source border without the seamline");
         for (const auto& composite_table_feature : composite_table_layer) {
@@ -138,14 +154,17 @@ bool MosaickingBase::Run(
         }
         spdlog::debug("Updating the source border without the seamline - done");
       }
+      // Delete the processed polygon in the covered border
       new_covered_polygon.reset(new_covered_polygon->Union(covered_polygon));
       _covered_border_->removeGeometry(i);
     }
+    // Add the union polygon in the covered border
     _covered_border_->addGeometryDirectly(new_covered_polygon.get());
     new_covered_polygon.release();
     spdlog::debug("Updating the covered border - done");
     spdlog::info("Adding the subtask from the intersected border - done");
   }
+  // Create the feature for the composite table
   OGRFeatureUniquePtr composite_table_feature(OGRFeature::CreateFeature(
       composite_table_layer->GetLayerDefn()));
   if (composite_table_layer->GetSpatialRef())
@@ -168,6 +187,7 @@ void MosaickingBase::CreateOverlapDatasets(
     GDALDatasetUniquePtr& new_overlap_dataset,
     GDALDatasetUniquePtr& label_raster_dataset,
     double downsample_factor) {
+  // Create the union range and geotransform
   spdlog::debug("Creating overlap datasets");
   double source_geotrans[6], source_inv_geotrans[6], union_geotrans[6], x, y;
   source_raster_dataset->GetGeoTransform(source_geotrans);
@@ -190,7 +210,9 @@ void MosaickingBase::CreateOverlapDatasets(
   union_geotrans[2] = 0;
   union_geotrans[4] = 0;
   union_geotrans[5] = downsample_factor * source_geotrans[5];
-  spdlog::debug("Creating overlap datasets' range and geotransform - done");
+  spdlog::debug("Creating the union range and geotransform - done");
+
+  // Create the covered overlap dataset
   covered_overlap_dataset.reset(mem_driver_->Create(
       "", range[2], range[3], 3, GDT_Byte, nullptr));
   covered_overlap_dataset->SetGeoTransform(union_geotrans);
@@ -208,6 +230,8 @@ void MosaickingBase::CreateOverlapDatasets(
   for (const auto& raster_dataset : rasters_dataset)
     GDALClose(raster_dataset);
   spdlog::debug("Creating the covered overlap dataset - done");
+
+  // Create the new overlap dataset
   new_overlap_dataset.reset(mem_driver_->Create(
       "", range[2], range[3], 3, GDT_Byte, nullptr));
   new_overlap_dataset->SetGeoTransform(union_geotrans);
@@ -216,6 +240,8 @@ void MosaickingBase::CreateOverlapDatasets(
       { source_raster_dataset }, new_overlap_dataset.get(),
       new_overlap_geometry);
   spdlog::debug("Creating the new overlap dataset - done");
+
+  // Create the label raster dataset if necessary
   if (label_raster_dataset) {
     GDALDataset* _label_raster_dataset(mem_driver_->Create(
         "", range[2], range[3], 1, GDT_Byte, nullptr));
@@ -230,66 +256,72 @@ void MosaickingBase::CreateOverlapDatasets(
   spdlog::debug("Creating overlap datasets - done");
 }
 
-void MosaickingBase::UpdateOverlapGeometries(
-    GDALDataset* covered_raster_dataset,
-    GDALDataset* new_raster_dataset,
+void MosaickingBase::UpdateLabelRasterDataset(
+    GDALDataset* covered_overlap_dataset,
+    GDALDataset* new_overlap_dataset,
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& covered_overlap_geometry,
     OGRGeometryUniquePtr& new_overlap_geometry,
     OGRLayer* seamline_layer,
     int overview_idx) {
-  spdlog::debug("Updating overlap geometries");
+  spdlog::debug("Updating the label raster dataset");
   cv::Mat covered_mat, new_mat, label_mat;
   PrepareData(
-      covered_raster_dataset, new_raster_dataset, label_raster_dataset.get(),
+      covered_overlap_dataset, new_overlap_dataset, label_raster_dataset.get(),
       covered_mat, new_mat, label_mat);
   OGRGeometryUniquePtr label0_geometry(nullptr), label1_geometry(nullptr);
   CreateSeamlineGeometries(
-      new_raster_dataset, covered_mat, new_mat, label_mat, label_raster_dataset,
-      label0_geometry, label1_geometry, seamline_layer);
+      new_overlap_dataset, covered_mat, new_mat, label_mat,
+      label_raster_dataset, label0_geometry, label1_geometry, seamline_layer);
+
+  // Create overlap geometries if needed
   if (!seamline_layer) {
-    covered_overlap_geometry.reset(OGRGeometryFactory::forceToPolygon(
-        label0_geometry->Boundary()));
-    new_overlap_geometry.reset(OGRGeometryFactory::forceToPolygon(
-        label1_geometry->Boundary()));
-    OGRGeometryUniquePtr overlap_geometry(
-        covered_overlap_geometry->Intersection(new_overlap_geometry.get()));
-    if (overlap_geometry->getGeometryType() == wkbMultiLineString) {
+    // Create the seamline line string
+    OGRGeometryUniquePtr seamline_geometry(
+        label0_geometry->Intersection(label1_geometry.get()));
+    if (seamline_geometry->getGeometryType() == wkbMultiLineString) {
       nlohmann::json 
           overlap_geometry_json(nlohmann::json::parse(
-              overlap_geometry->exportToJson())),
+              seamline_geometry->exportToJson())),
           overlap_line_string_json;
       overlap_line_string_json["type"] = "LineString";
       overlap_line_string_json["coordinates"] = {};
       for (const auto& line_string : overlap_geometry_json.at("coordinates"))
         overlap_line_string_json["coordinates"].push_back(*line_string.begin());
-      overlap_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+      seamline_geometry.reset(OGRGeometryFactory::createFromGeoJson(
           overlap_line_string_json.dump().c_str()));
     }
-    double geotrans[6], buffer(fmax(fmin(30, 5 * (overview_idx + 1)), 10));
-    new_raster_dataset->GetGeoTransform(geotrans);
-    overlap_geometry.reset(overlap_geometry->Simplify(5 * geotrans[1]));
-    overlap_geometry.reset(overlap_geometry->Buffer(buffer * geotrans[1]));
+
+    // Create the seamline polygon and the buffered seamline polygon
+    //OGRGeometryUniquePtr valid_geometry(
+    //    label0_geometry->Union(label1_geometry.get()));
+    double geotrans[6], buffer(fmin(30, 5 * (overview_idx + 1)));
+    new_overlap_dataset->GetGeoTransform(geotrans);
+    seamline_geometry.reset(seamline_geometry->Simplify(5 * geotrans[1]));
+    seamline_geometry.reset(seamline_geometry->Buffer(buffer * geotrans[1]));
+    //seamline_geometry.reset(
+    //    seamline_geometry->Intersection(valid_geometry.get()));
     OGRGeometryUniquePtr buffered_overlap_geometry(
-        overlap_geometry->Buffer(buffer * geotrans[1]));
+        seamline_geometry->Buffer(buffer * geotrans[1]));
+
+    // Create overlap geometries
     covered_overlap_geometry.reset(
-        label0_geometry->Union(overlap_geometry.get()));
+        label0_geometry->Union(seamline_geometry.get()));
     covered_overlap_geometry.reset(covered_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
-    new_overlap_geometry.reset(label1_geometry->Union(overlap_geometry.get()));
+    new_overlap_geometry.reset(label1_geometry->Union(seamline_geometry.get()));
     new_overlap_geometry.reset(new_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
   }
-  spdlog::debug("Updating overlap geometries - done");
+  spdlog::debug("Updating the label raster dataset - done");
 }
 
 void MosaickingBase::AddSeamline(
-    OGRLayer* composite_table_layer,
     OGRLayer* seamline_layer,
+    OGRLayer* composite_table_layer,
     OGRGeometryUniquePtr& source_border) {
   spdlog::debug(
-      "Updating the source border and the composite table layer "
-      "with the seamline");
+      "Add the seamline to the composite table and the source border");
   OGRGeometryUniquePtr covered_geometry(nullptr), new_geometry(nullptr);
   for (const auto& seamline_feature : seamline_layer) {
     OGRGeometry* seamline_geometry(seamline_feature->GetGeometryRef());
@@ -305,12 +337,16 @@ void MosaickingBase::AddSeamline(
   }
   OGRGeometryUniquePtr diff_geometry(
       source_border->Difference(covered_geometry.get()));
+
+  // Update the source border
   for (const auto& geometry : diff_geometry->toMultiPolygon())
     if (geometry->Intersect(new_geometry.get())) {
       source_border.reset(geometry->clone());
       break;
     }
   spdlog::debug("Updating the source border with the seamline - done");
+
+  // Update the composite table
   std::vector<std::pair<GIntBig, OGRGeometryUniquePtr>> dislocated_geometries;
   for (auto& composite_table_feature : composite_table_layer) {
     GIntBig id(composite_table_feature->GetFID());
@@ -349,10 +385,9 @@ void MosaickingBase::AddSeamline(
             info.second->Union(composite_table_feature->GetGeometryRef()));
         composite_table_layer->SetFeature(composite_table_feature.get());
       }
-  spdlog::debug("Updating the composite table layer with the seamline - done");
+  spdlog::debug("Updating the composite table with the seamline - done");
   spdlog::debug(
-      "Updating the source border and the composite table layer "
-      "with the seamline - done");
+      "Add the seamline to the composite table and the source border - done");
 }
 
 } // mosaicking

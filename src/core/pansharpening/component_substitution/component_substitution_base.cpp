@@ -228,9 +228,9 @@ bool ComponentSubstitutionBase::Run(
   if (!output_bands_count)
     output_bands_count = bands_count;
   GDALDriver* gtiff_driver(GetGDALDriverManager()->GetDriverByName("GTiff"));
-  GDALDatasetUniquePtr pansharpened_dataset(
-      gtiff_driver->Create(pansharpened_path.c_str(), pan_x_size, pan_y_size,
-      output_bands_count, pansharpened_dataset_type, nullptr));
+  GDALDatasetUniquePtr pansharpened_dataset(gtiff_driver->Create(
+      pansharpened_path.c_str(), pan_x_size, pan_y_size, output_bands_count,
+      pansharpened_dataset_type, nullptr));
   if (use_rpc) {
     pansharpened_dataset->SetMetadata(pan_dataset->GetMetadata("RPC"), "RPC");
   } else {
