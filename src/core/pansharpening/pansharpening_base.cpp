@@ -37,7 +37,7 @@ void PansharpeningBase::CreateRangesForRPC(
       target_block_idx, target_block_cols_count, target_block_rows_count,
       target_block_x_size, target_block_y_size, last_target_block_x_size,
       last_target_block_y_size, target_range);
-  double 
+  double
       xs[4]{
           static_cast<double>(target_range[0]),
           static_cast<double>(target_range[0] + target_range[2]),
@@ -46,19 +46,15 @@ void PansharpeningBase::CreateRangesForRPC(
       ys[4]{
           static_cast<double>(target_range[1]),
           static_cast<double>(target_range[1]),
-          static_cast<double>(target_range[1] + target_range[3]),               
+          static_cast<double>(target_range[1] + target_range[3]),
           static_cast<double>(target_range[1] + target_range[3]) },
-      zs[4]{ 0.0, 0.0, 0.0, 0.0 };                                          
-  int successes[4];                                                             
-  GDALRPCTransform(               
-      forward_trans_arg.get(), true, 4, xs, ys, zs, successes);
-  GDALRPCTransform(
-      backward_trans_arg.get(), true, 4, xs, ys, zs, successes);
-  source_range[0] = 
-      static_cast<int>(floor(fmax(fmin(xs[0], xs[2]), 0.)));
-  source_range[1] = 
-      static_cast<int>(floor(fmax(fmin(ys[0], ys[1]), 0.)));
-  source_range[2] = static_cast<int>(ceil(fmin(fmax(xs[1], xs[3]), 
+      zs[4]{ 0.0, 0.0, 0.0, 0.0 };
+  int successes[4];
+  GDALRPCTransform(forward_trans_arg.get(), true, 4, xs, ys, zs, successes);
+  GDALRPCTransform(backward_trans_arg.get(), true, 4, xs, ys, zs, successes);
+  source_range[0] = static_cast<int>(floor(fmax(fmin(xs[0], xs[2]), 0.0)));
+  source_range[1] = static_cast<int>(floor(fmax(fmin(ys[0], ys[1]), 0.0)));
+  source_range[2] = static_cast<int>(ceil(fmin(fmax(xs[1], xs[3]),
       static_cast<double>(source_x_size)))) - source_range[0];
   source_range[3] = static_cast<int>(ceil(fmin(fmax(ys[2], ys[3]),
       static_cast<double>(source_y_size)))) - source_range[1];
@@ -107,7 +103,8 @@ PansharpeningBase::Data PansharpeningBase::CreateDownsampledDataWithRPC(
       utils::CreateMatFromDataset(pan_dataset.get(), pan_range), ms_mat,
       pan_range, ms_range, ms_trans_arg, pan_trans_arg)[0];
   MaskData(data);
-  spdlog::info("Creating the downsampled data with the rpc information - done");
+  spdlog::info(
+      "Creating the downsampled data with the rpc information - done");
   return data;
 }
 
@@ -116,7 +113,7 @@ PansharpeningBase::Data PansharpeningBase::CreateUpsampledDataWithGeotrans(
     const std::string& ms_path,
     int* pan_range) {
   spdlog::debug("Creating the upsampled data with the geotransform");
-  GDALDatasetUniquePtr 
+  GDALDatasetUniquePtr
       pan_dataset(GDALDataset::Open(
           pan_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)),
       ms_dataset(GDALDataset::Open(
@@ -135,10 +132,12 @@ PansharpeningBase::Data PansharpeningBase::CreateUpsampledDataWithGeotrans(
   for (int b = 0; b < ms_dataset->GetRasterCount(); b++)
     upsampled_ms_dataset->GetRasterBand(b + 1)->SetNoDataValue(
         ms_dataset->GetRasterBand(b + 1)->GetNoDataValue());
+  cv::Mat s(utils::CreateMatFromDataset(ms_dataset.get()));
   utils::WarpByGeometry(
-      { ms_dataset.get() }, upsampled_ms_dataset.get(), nullptr);
+      { ms_dataset.get() }, { nullptr }, upsampled_ms_dataset);
   data.mat = utils::CreateMatFromDataset(pan_dataset.get(), pan_range);
-  cv::split(utils::CreateMatFromDataset(upsampled_ms_dataset.get()), data.mats);
+  cv::split(
+      utils::CreateMatFromDataset(upsampled_ms_dataset.get()), data.mats);
   MaskData(data);
   spdlog::info("Creating the upsampled data with the geotransform - done");
   return data;
@@ -149,7 +148,7 @@ PansharpeningBase::Data PansharpeningBase::CreateDownsampledDataWithGeotrans(
     const std::string& ms_path,
     int* ms_range) {
   spdlog::debug("Creating the downsampled data with the geotransform");
-  GDALDatasetUniquePtr 
+  GDALDatasetUniquePtr
       pan_dataset(GDALDataset::Open(
           pan_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)),
       ms_dataset(GDALDataset::Open(
@@ -169,8 +168,9 @@ PansharpeningBase::Data PansharpeningBase::CreateDownsampledDataWithGeotrans(
     downsampled_pan_dataset->GetRasterBand(b + 1)->SetNoDataValue(
         pan_dataset->GetRasterBand(b + 1)->GetNoDataValue());
   utils::WarpByGeometry(
-      { pan_dataset.get() }, downsampled_pan_dataset.get(), nullptr);
-  cv::split(utils::CreateMatFromDataset(ms_dataset.get(), ms_range), data.mats);
+      { pan_dataset.get() }, { nullptr }, downsampled_pan_dataset);
+  cv::split(
+      utils::CreateMatFromDataset(ms_dataset.get(), ms_range), data.mats);
   data.mat = utils::CreateMatFromDataset(downsampled_pan_dataset.get());
   MaskData(data);
   spdlog::info("Creating the downsampled data with the geotransform - done");
@@ -222,12 +222,12 @@ std::vector<cv::Mat> PansharpeningBase::CreateResampledMatsWithRpc(
     if (source_mat.depth() == CV_8U) {
       utils::CalculateInterpolations<uint8_t>(
           source_mat, target_range[2], xs.get(), ys.get(),
-          static_cast<uint8_t*>(resampled_source_data.get()) + 
+          static_cast<uint8_t*>(resampled_source_data.get()) +
           static_cast<uint64_t>(bands_count) * row * target_range[2]);
     } else {
       utils::CalculateInterpolations<uint16_t>(
           source_mat, target_range[2], xs.get(), ys.get(),
-          static_cast<uint16_t*>(resampled_source_data.get()) + 
+          static_cast<uint16_t*>(resampled_source_data.get()) +
           static_cast<uint64_t>(bands_count) * row * target_range[2]);
     }
   }

@@ -20,21 +20,18 @@ void GramSchmidtImpl::UpdateUpsampleInfo(
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
 
-  // Create the synthetic low resolution PAN mat and mean
+  // Create a synthetic low resolution PAN mat and calculate its mean
   cv::Mat synthetic_low_reso_pan_mat;
   data.mats[0].convertTo(synthetic_low_reso_pan_mat, CV_16SC1, weights[0]);
-  double synthetic_low_reso_pan_mean(weights[0] * _s->upsampled_ms_means[0]);
-  for (int i = 1; i < bands_count; i++) {
+  for (int i = 1; i < bands_count; i++)
     synthetic_low_reso_pan_mat += weights[i] * data.mats[i];
-    synthetic_low_reso_pan_mean += weights[i] * _s->upsampled_ms_means[i];
-  }
   synthetic_low_reso_pan_mat.convertTo(
       synthetic_low_reso_pan_mat, data.mat.type());
 
   // Update histogram mats
   std::vector<cv::Mat> 
-      cur_pan_hist_mat(utils::CalcHist(data.mat)),
-      cur_synthetic_low_reso_pan_hist_mat(utils::CalcHist(
+      cur_pan_hist_mat(utils::CreateHist(data.mat)),
+      cur_synthetic_low_reso_pan_hist_mat(utils::CreateHist(
           synthetic_low_reso_pan_mat));
   if (_s->pan_hist_mat.empty()) {
     _s->pan_hist_mat.push_back(cur_pan_hist_mat[0]);
@@ -46,7 +43,7 @@ void GramSchmidtImpl::UpdateUpsampleInfo(
         cur_synthetic_low_reso_pan_hist_mat[0];
   }
 
-  // Update the other statistic
+  // Update the other statistics
   _s->pixels_count += cv::countNonZero(data.mat);
   _s->synthetic_low_reso_pan_sum_ += cv::sum(synthetic_low_reso_pan_mat)[0];
   _s->synthetic_low_reso_pan_square_sum_ +=
@@ -63,9 +60,9 @@ void GramSchmidtImpl::UpdateUpsampleInfo(
 }
 
 std::vector<double> GramSchmidtImpl::CreateInjectionGains(void* s) {
-  spdlog::debug("Creating the injection gains");
+  spdlog::debug("Creating injection gains");
   auto _s(static_cast<Statistic*>(s));
-  int bands_count(static_cast<int>(_s->upsampled_ms_means.size()));
+  int bands_count(static_cast<int>(_s->upsampled_ms_sums_.size()));
   std::vector<double> injection_gains(bands_count);
   double var(
       _s->pixels_count * _s->synthetic_low_reso_pan_square_sum_ -
@@ -75,7 +72,9 @@ std::vector<double> GramSchmidtImpl::CreateInjectionGains(void* s) {
     injection_gains[b] = 
         (_s->pixels_count * _s->product_sums_[b] -
         _s->synthetic_low_reso_pan_sum_ * _s->upsampled_ms_sums_[b]) / var;
-  spdlog::info("Creating the injection gains - done");
+  _s->hist_matching_mat =  utils::CreateHistMatchingLut(
+      _s->pan_hist_mat, _s->synthetic_low_reso_pan_hist_mat);
+  spdlog::info("Creating injection gains - done");
   return injection_gains;
 }
 
@@ -83,7 +82,7 @@ std::vector<cv::Mat> GramSchmidtImpl::CreateDeltaMats(
     const Data& data,
     const std::vector<double>& weights,
     void* s) {
-  spdlog::debug("Creating the delta mats");
+  spdlog::debug("Creating delta mats");
   auto _s(static_cast<Statistic*>(s));
   int bands_count(static_cast<int>(data.mats.size()));
   cv::Mat delta_mat;
@@ -94,15 +93,14 @@ std::vector<cv::Mat> GramSchmidtImpl::CreateDeltaMats(
     delta_mat -= weights[i] * data.mats[i];
   if (weights.size() == bands_count + 1) {
     cv::Mat constant_mat;
-    cv::threshold(data.mat, constant_mat, 0, weights.back(), cv::THRESH_BINARY);
+    cv::threshold(
+        data.mat, constant_mat, 0, weights.back(), cv::THRESH_BINARY);
     delta_mat -= constant_mat;
   }
 
   // The delta mat plus the histogram matched PAN mat
-  delta_mat += utils::TransformMat(
-      data.mat, utils::CreateHistLUT(
-          _s->pan_hist_mat, _s->synthetic_low_reso_pan_hist_mat));
-  spdlog::info("Creating the delta mats - done");
+  delta_mat += utils::TransformMatWithLut(data.mat, _s->hist_matching_mat);
+  spdlog::info("Creating delta mats - done");
   return std::vector<cv::Mat>(bands_count, delta_mat);
 }
 

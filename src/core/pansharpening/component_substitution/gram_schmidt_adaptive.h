@@ -33,9 +33,9 @@ class GramSchmidtAdaptiveImpl final
     double synthetic_low_reso_pan_square_sum_;
     std::vector<double> upsampled_ms_sums_;
     std::vector<double> product_sums_;
-    std::vector<double> upsampled_ms_means;
     std::vector<cv::Mat> pan_hist_mat;
     std::vector<cv::Mat> synthetic_low_reso_pan_hist_mat;
+    cv::Mat hist_matching_mat;
   };
 
   void* CreateStatistic(
@@ -46,11 +46,10 @@ class GramSchmidtAdaptiveImpl final
         Eigen::MatrixXf::Ones(x_size * y_size, bands_count + 1),
         Eigen::VectorXf(x_size * y_size),
         0,
-        0.,
-        0.,
-        std::vector<double>(bands_count, 0.),
-        std::vector<double>(bands_count, 0.),
-        std::vector<double>(bands_count, 0.) });
+        0.0,
+        0.0,
+        std::vector<double>(bands_count, 0.0),
+        std::vector<double>(bands_count, 0.0) });
   }
 
   void UpdateDownsampleInfo(
@@ -79,4 +78,4 @@ class GramSchmidtAdaptiveImpl final
 } // pansharpening
 } // rs_toolset
 
-#endif // #define RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_GRAM_SCHMIDT_ADAPTIVE_H_
+#endif // RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_GRAM_SCHMIDT_ADAPTIVE_H_

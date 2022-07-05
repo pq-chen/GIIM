@@ -40,18 +40,19 @@ void GraphCutImpl::PrepareData(
   spdlog::debug("Preparing the data - done");
 }
 
-void GraphCutImpl::CreateSeamlineGeometries(
-    GDALDataset* new_overlap_dataset,
+void GraphCutImpl::ExecuteMosaicking(
     const cv::Mat& covered_mat,
     const cv::Mat& new_mat,
     const cv::Mat& label_mat,
+    double* geotrans,
+    OGRSpatialReference* spatial_ref,
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& label0_geometry,
-    OGRGeometryUniquePtr& label1_geometry,
-    OGRLayer* seamline_layer) {
-  spdlog::debug("Creating seamline geometries");
+    OGRGeometryUniquePtr& label1_geometry) {
+  spdlog::debug("Execute the graph cut mosaicking algorithm");
 
   // Create graph cut data structures and run the graph cut algorithm
+  spdlog::debug("Creating maps between coors and valid indexes");
   std::map<std::pair<int, int>, GraphCutInfo> coor_to_valid_idxes;
   std::map<int, std::pair<int, int>> valid_idx_to_coors;
   int valid_idx(0);
@@ -73,9 +74,10 @@ void GraphCutImpl::CreateSeamlineGeometries(
       valid_idx_to_coors[valid_idx] = { row, col };
       valid_idx++;
     }
-  spdlog::debug("Creating the maps between coors and valid indexes - done");
+  spdlog::debug("Creating maps between coors and valid indexes - done");
+  spdlog::debug("Creating a graph cut class and run the algorithm");
   auto gc(std::make_unique<GCoptimizationGeneralGraph>(valid_idx, 2));
-  std::map<std::pair<int, int>, GraphCutInfo>::iterator it;
+  decltype(coor_to_valid_idxes.begin()) it;
   for (const auto& info : coor_to_valid_idxes) {
     switch (info.second.label) {
       case 0: {
@@ -107,11 +109,10 @@ void GraphCutImpl::CreateSeamlineGeometries(
     if (it != coor_to_valid_idxes.end())
       gc->setNeighbors(info.second.idx, it->second.idx);
   }
-  spdlog::debug("Setting the data energy and neighbors - done");
-  cv::Mat 
-      x_kernel = (cv::Mat_<float>(4, 3) << 
+  cv::Mat
+      x_kernel = (cv::Mat_<float>(4, 3) <<
           -0.4, 0, 0.4, -2, 0, 2, -2, 0, 2, -0.4, 0, 0.4),
-      y_kernel = (cv::Mat_<float>(3, 4) << 
+      y_kernel = (cv::Mat_<float>(3, 4) <<
           -0.4, -2, -2, -0.4, 0, 0, 0, 0, 0.4, 2, 2, 0.4),
       covered_x_mat, covered_y_mat, new_x_mat, new_y_mat;
   cv::filter2D(covered_mat, covered_x_mat, CV_32F, x_kernel, cv::Point(1, 1));
@@ -119,31 +120,29 @@ void GraphCutImpl::CreateSeamlineGeometries(
   cv::filter2D(new_mat, new_x_mat, CV_32F, x_kernel, cv::Point(1, 1));
   cv::filter2D(new_mat, new_y_mat, CV_32F, y_kernel, cv::Point(1, 1));
   SmoothExtraData smooth_extra_data{
-      grad_term_exp_, diff_term_low_trunc_, diff_term_high_trunc_, covered_mat, 
+      grad_term_exp_, diff_term_low_trunc_, diff_term_high_trunc_, covered_mat,
       covered_x_mat, covered_y_mat, new_mat, new_x_mat, new_y_mat,
       valid_idx_to_coors };
   gc->setSmoothCost(SmoothCost, &smooth_extra_data);
-  spdlog::debug("Setting the smooth energy - done");
   gc->expansion(2);
-  spdlog::debug("Excuting the graph cut method - done");
+  spdlog::debug("Creating a graph cut class and run the algorithm - done");
 
-  // Update the label raster dataset
+  // Update the label raster
+  spdlog::debug("Updating the label raster");
   cv::Mat new_label_mat(cv::Mat::zeros(label_mat.size(), CV_8UC1));
   for (const auto& info : coor_to_valid_idxes)
-    new_label_mat.at<uint8_t>(info.first.first, info.first.second) = 
+    new_label_mat.at<uint8_t>(info.first.first, info.first.second) =
         gc->whatLabel(info.second.idx) == 0 ? 100 : 200;
-  double geotrans[6];
-  new_overlap_dataset->GetGeoTransform(geotrans);
   label_raster_dataset = utils::CreateDatasetFromMat(
-      new_label_mat, "", geotrans, 
-      const_cast<OGRSpatialReference*>(new_overlap_dataset->GetSpatialRef()));
+      new_label_mat, "", geotrans, spatial_ref);
+  spdlog::debug("Updating the label raster - done");
 
-  // Polygonize the label raster dataset
+  // Polygonize the label raster
+  spdlog::debug("Polygonizing the new label raster");
   GDALDatasetUniquePtr polygonized_vector_dataset(memory_driver_->Create(
       "", 0, 0, 0, GDT_Unknown, nullptr));
   OGRLayer* polygonized_layer(polygonized_vector_dataset->CreateLayer(
-      "", const_cast<OGRSpatialReference*>(new_overlap_dataset->GetSpatialRef()),
-      wkbPolygon));
+      "", spatial_ref, wkbPolygon));
   OGRFieldDefn label_field("label", OFTInteger);
   polygonized_layer->CreateField(&label_field);
   GDALPolygonize(
@@ -151,69 +150,45 @@ void GraphCutImpl::CreateSeamlineGeometries(
       nullptr, nullptr, nullptr);
   spdlog::debug("Polygonizing the new label raster - done");
 
-  // Finde label geometries
-  std::pair<GIntBig, double> label0_max(-1, -1.), label1_max(-1, -1.);
+  // Find label geometries among polygonized features
+  spdlog::debug("Finding label geometries among polygonized features");
+  std::pair<GIntBig, double> label0_max(-1, -1.0), label1_max(-1, -1.0);
   for (const auto& polygonized_feature : polygonized_layer) {
-    GIntBig fid = polygonized_feature->GetFID();
+    GIntBig id(polygonized_feature->GetFID());
     switch (polygonized_feature->GetFieldAsInteger(0)) {
       case 100: {
         double area(
             polygonized_feature->GetGeometryRef()->toPolygon()->get_Area());
         if (area > label0_max.second)
-          label0_max = { fid, area };
+          label0_max = { id, area };
         break;
       }
       case 200: {
         double area(
             polygonized_feature->GetGeometryRef()->toPolygon()->get_Area());
         if (area > label1_max.second)
-          label1_max = { fid, area };
+          label1_max = { id, area };
       }
     }
   }
   label0_geometry.reset(
       polygonized_layer->GetFeature(label0_max.first)->GetGeometryRef()
-      ->clone());
+      ->Boundary());
   label1_geometry.reset(
       polygonized_layer->GetFeature(label1_max.first)->GetGeometryRef()
-      ->clone());
-  spdlog::debug("Finding label geometries - done");
+      ->Boundary());
+  spdlog::debug("Finding label geometries among polygonized features - done");
 
   // Eliminate internal holes in the label geometries
-  OGRGeometryUniquePtr 
-      label0_boundary(label0_geometry->Boundary()),
-      label1_boundary(label1_geometry->Boundary());
-  if (label0_boundary->getGeometryType() == wkbMultiLineString) {
-    OGRGeometry* label0_outer_boundary(
-        label0_boundary->toMultiLineString()->getGeometryRef(0)->clone());
-    label0_geometry.reset(OGRGeometryFactory::forceToPolygon(
-        label0_outer_boundary));
-  }
-  if (label1_boundary->getGeometryType() == wkbMultiLineString) {
-    OGRGeometry* label1_outer_boundary(
-        label1_boundary->toMultiLineString()->getGeometryRef(0)->clone());
-    label1_geometry.reset(OGRGeometryFactory::forceToPolygon(
-        label1_outer_boundary));
-  }
-
-  // Create features for the seamline layer if needed
-  if (seamline_layer) {
-    OGRFeatureUniquePtr 
-        label0_feature(OGRFeature::CreateFeature(
-            seamline_layer->GetLayerDefn())),
-        label1_feature(OGRFeature::CreateFeature(
-            seamline_layer->GetLayerDefn()));
-    label0_feature->SetGeometryDirectly(label0_geometry.get());
-    label0_geometry.release();
-    label0_feature->SetField(0, 100);
-    seamline_layer->CreateFeature(label0_feature.get());
-    label1_feature->SetGeometryDirectly(label1_geometry.get());
-    label1_geometry.release();
-    label1_feature->SetField(0, 200);
-    seamline_layer->CreateFeature(label1_feature.get());
-    spdlog::debug("Creating features for the seamline layer - done");
-  }
-  spdlog::debug("Creating seamline geometries - done");
+  spdlog::debug("Eliminating internal holes in the label geometries");
+  if (label0_geometry->getGeometryType() == wkbMultiLineString)
+    label0_geometry.reset(
+        label0_geometry->toMultiLineString()->getGeometryRef(0)->clone());
+  if (label0_geometry->getGeometryType() == wkbMultiLineString)
+    label1_geometry.reset(
+        label1_geometry->toMultiLineString()->getGeometryRef(0)->clone());
+  spdlog::debug("Eliminating internal holes in the label geometries - done");
+  spdlog::debug("Execute the graph cut mosaicking algorithm - done");
 }
 
 cv::Mat GraphCutImpl::CreateLightnessMat(GDALDataset* dataset) {
@@ -232,8 +207,7 @@ int GraphCutImpl::SmoothCost(
       int label1,
       int label2,
       void* extra_data) {
-  SmoothExtraData* _extra_data = static_cast<SmoothExtraData*>(
-      extra_data);
+  auto _extra_data(static_cast<SmoothExtraData*>(extra_data));
   if (label1 == label2) return 0;
   int row1(_extra_data->valid_idx_to_coors.at(site1).first),
       col1(_extra_data->valid_idx_to_coors.at(site1).second),
@@ -243,7 +217,7 @@ int GraphCutImpl::SmoothCost(
       min_col(col1 < col2 ? col1 : col2),
       max_row(row1 > row2 ? row1 : row2),
       max_col(col1 > col2 ? col1 : col2);
-  float gradient_term(200.);
+  float gradient_term(200.0);
   if (min_row != 0 && max_row != _extra_data->covered_mat.rows - 1 &&
       min_col != 0 && max_col != _extra_data->covered_mat.cols - 1) {
     if (row1 == row2) {
@@ -255,23 +229,23 @@ int GraphCutImpl::SmoothCost(
           cv::countNonZero(box_mat1) == 12 && 
           cv::countNonZero(box_mat2) == 12) {
         gradient_term = std::abs(
-            _extra_data->covered_y_mat.at<float>(min_row, min_col) - 
+            _extra_data->covered_y_mat.at<float>(min_row, min_col) -
             _extra_data->new_y_mat.at<float>(min_row, min_col));
       }
     } else {
       cv::Rect rect(min_col - 1, min_row - 1, 3, 4);
-      cv::Mat 
+      cv::Mat
           box_mat1(cv::Mat(_extra_data->covered_mat, rect)),
           box_mat2(cv::Mat(_extra_data->new_mat, rect));
       if (cv::countNonZero(box_mat1) == 12 &&
           cv::countNonZero(box_mat2) == 12) {
         gradient_term = std::abs(
-            _extra_data->covered_x_mat.at<float>(min_row, min_col) - 
+            _extra_data->covered_x_mat.at<float>(min_row, min_col) -
             _extra_data->new_x_mat.at<float>(min_row, min_col));
       }
     }
   } 
-  float diff_term(0.);
+  float diff_term(0.0);
   if (label1 == 0) {
     diff_term = std::abs(
         _extra_data->covered_mat.at<float>(row1, col1) -
@@ -282,17 +256,18 @@ int GraphCutImpl::SmoothCost(
         _extra_data->covered_mat.at<float>(row2, col2));
   }
   return static_cast<int>(round(
-      100 * std::pow(gradient_term, _extra_data->grad_exp) * 
+      100 * std::pow(gradient_term, _extra_data->grad_exp) *
       (fmax(fmin(diff_term, _extra_data->max_diff), _extra_data->min_diff))));
 }
 
 std::shared_ptr<GraphCut> GraphCut::Create(
     double grad_term_exp,
     double diff_term_low_trunc,
-    double diff_term_high_trunc) {
+    double diff_term_high_trunc,
+    double tol) {
   return std::make_shared<GraphCutImpl>(
-      grad_term_exp, diff_term_low_trunc, diff_term_high_trunc);
+      grad_term_exp, diff_term_low_trunc, diff_term_high_trunc, tol);
 }
 
-} // mosaicking 
+} // mosaicking
 } // rs_toolset

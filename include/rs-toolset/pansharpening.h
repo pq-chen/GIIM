@@ -21,21 +21,19 @@
 namespace rs_toolset {
 namespace pansharpening {
 
-/// <summary>
-/// Abstract pansharpening class
-/// </summary>
+/** @brief Abstract pansharpening class */
 class RS_TOOLSET_API PansharpeningInterface {
  public:
-  /// <summary>
-  /// Run pansharpening on the PAN raster path and MS raster path
-  /// </summary>
-  /// <param name="pan_path">The PAN raster path</param>
-  /// <param name="ms_path">The PAN raster path</param>
-  /// <param name="pansharpened_path">The output pansharpened raster path</param>
-  /// <param name="use_rpc">Whether uses the RPC information</param>
-  /// <param name="use_stretch">Whether uses stretch for the pansharpened raster</param>
-  /// <param name="pansharpened_bands_map">The Bands' map, default is empty means all bands</param>
-  /// <returns>Running state</returns>
+  /**
+   * @brief Run the pansharpening algorithm on the PAN raster and MS raster
+   * @param[in] pan_path The PAN raster path
+   * @param[in] ms_path The MS raster path
+   * @param[out] pansharpened_path The output pansharpened raster path
+   * @param[in] use_rpc Whether uses the RPC information
+   * @param[in] use_stretch Whether uses the stretch algorithm on the pansharpened raster
+   * @param[in] pansharpened_bands_map The bands' map, default is empty means all bands
+   * @return Running state
+  */
   virtual bool Run(
       const std::string& pan_path,
       const std::string& ms_path,
@@ -45,30 +43,26 @@ class RS_TOOLSET_API PansharpeningInterface {
       const std::vector<int>& pansharpened_bands_map = {}) = 0;
 };
 
-/// <summary>
-/// Gram-Schmidt pansharpening class
-/// </summary>
+/** @brief Gram-Schmidt pansharpening class implementing the Gram-Schmidt pansharpening algorithm */
 class RS_TOOLSET_API GramSchmidt : virtual public PansharpeningInterface {
  public:
-  /// <summary>
-  /// Create the Gram-Schmidt pansharpening shared pointer
-  /// </summary>
-  /// <param name="block_size">The block size per operation</param>
-  /// <returns>The output Gram-Schmidt pansharpening shared pointer</returns>
+  /**
+   * @brief Create a Gram-Schmidt pansharpening shared pointer
+   * @param[in] block_size The block size per operation
+   * @return The output Gram-Schmidt pansharpening shared pointer
+  */
   static std::shared_ptr<GramSchmidt> Create(int block_size = 16384);
 };
 
-/// <summary>
-/// Gram-Schmidt adaptive pansharpening class
-/// </summary>
-class RS_TOOLSET_API GramSchmidtAdaptive 
+/** @brief Gram-Schmidt adaptive pansharpening class implementing the Gram-Schmidt adaptive pansharpening algorithm */
+class RS_TOOLSET_API GramSchmidtAdaptive
     : virtual public PansharpeningInterface {
  public:
-  /// <summary>
-  /// Create the Gram-Schmidt adaptive pansharpening shared pointer
-  /// </summary>
-  /// <param name="block_size">The block size per operation</param>
-  /// <returns>The output Gram-Schmidt adaptive pansharpening shared pointer</returns>
+  /**
+   * @brief Create a Gram-Schmidt adaptive pansharpening shared pointer
+   * @param[in] block_size The block size per operation
+   * @return The output Gram-Schmidt adaptive pansharpening shared pointer
+  */
   static std::shared_ptr<GramSchmidtAdaptive> Create(int block_size = 16384);
 };
 

@@ -31,9 +31,9 @@ class GramSchmidtImpl final
     double synthetic_low_reso_pan_square_sum_;
     std::vector<double> upsampled_ms_sums_;
     std::vector<double> product_sums_;
-    std::vector<double> upsampled_ms_means;
     std::vector<cv::Mat> pan_hist_mat;
     std::vector<cv::Mat> synthetic_low_reso_pan_hist_mat;
+    cv::Mat hist_matching_mat;
   };
 
   void* CreateStatistic(
@@ -42,19 +42,18 @@ class GramSchmidtImpl final
       int y_size) override {
     return static_cast<void*>(new Statistic{
         0,
-        0.,
-        0.,
-        std::vector<double>(bands_count, 0.),
-        std::vector<double>(bands_count, 0.),
-        std::vector<double>(bands_count, 0.) });
+        0.0,
+        0.0,
+        std::vector<double>(bands_count, 0.0),
+        std::vector<double>(bands_count, 0.0) });
   }
 
   std::vector<double> CreateWeights(void* s) override {
     spdlog::debug("Creating the weights");
     auto _s(static_cast<Statistic*>(s));
-    int bands_count(static_cast<int>(_s->upsampled_ms_means.size()));
+    int bands_count(static_cast<int>(_s->upsampled_ms_sums_.size()));
     spdlog::info("Creating the weights - done");
-    return std::vector<double>(bands_count, 1. / bands_count);
+    return std::vector<double>(bands_count, 1.0 / bands_count);
   }
 
   void UpdateUpsampleInfo(
@@ -69,8 +68,8 @@ class GramSchmidtImpl final
       const std::vector<double>& weights,
       void* s) override;
 
-  void DestroyStatistic(void* s) override { 
-    delete static_cast<Statistic*>(s); 
+  void DestroyStatistic(void* s) override {
+    delete static_cast<Statistic*>(s);
   }
 };
 

@@ -1,12 +1,18 @@
 #include "mosaicking_base.h"
 
+#include <cmath>
+
+#include <algorithm>
+#include <list>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include <gdal_alg.h>
 #include <gdal_priv.h>
-#include <ogrsf_frmts.h>
 #include <nlohmann/json.hpp>
+#include <ogrsf_frmts.h>
 #include <spdlog/spdlog.h>
 
 #include <rs-toolset/utils.hpp>
@@ -15,19 +21,27 @@
 namespace rs_toolset {
 namespace mosaicking {
 
-MosaickingBase::MosaickingBase()
+MosaickingBase::MosaickingBase(double tol)
     : mem_driver_(GetGDALDriverManager()->GetDriverByName("MEM")),
-      memory_driver_(GetGDALDriverManager()->GetDriverByName("Memory")) {}
+      memory_driver_(GetGDALDriverManager()->GetDriverByName("Memory")),
+      tol_(tol) {
+  buffers_per_unit_ = new int[8]{ 0, 10, 15, 20, 25, 30, 30, 30 };
+  spdlog::info(
+      "Creating a mosaicking base with\n"
+      " - Tolerance for simplifying the seamline : {}",  tol);
+}
 
 bool MosaickingBase::Run(
     const std::string& raster_path,
     OGRLayer* composite_table_layer,
     OGRGeometry* covered_border,
+    int last_overview_idx,
     bool use_seamline) {
   spdlog::info(
-      "Running the mosaicking task from\n"
-      "- Raster path: {}\n"
-      "- Use seamline: {}", raster_path, use_seamline);
+      "Running a mosaicking task from\n"
+      " - Raster path: {}\n"
+      " - Last overview index: {}\n"
+      " - Use seamline: {}", raster_path, last_overview_idx, use_seamline);
   GDALDatasetUniquePtr source_raster_dataset(GDALDataset::Open(
       raster_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
   if (!source_raster_dataset) {
@@ -35,33 +49,52 @@ bool MosaickingBase::Run(
     return false;
   }
   double geotrans[6];
-  if (source_raster_dataset->GetGeoTransform(geotrans) != CE_None || 
+  if (source_raster_dataset->GetGeoTransform(geotrans) != CE_None ||
       !source_raster_dataset->GetSpatialRef()) { 
     spdlog::warn(
         "{} does not have the geotransform or the spatial reference. "
         "Please check whether the raster is DOM", raster_path);
     return false;
   }
+  if (!composite_table_layer || !covered_border) {
+    spdlog::warn(
+        "The \"composite_table_layer\" or the \"covered_border\" argument is "
+        "empty");
+    return false;
+  }
+  int overviews_count(
+      source_raster_dataset->GetRasterBand(1)->GetOverviewCount());
+  if (last_overview_idx <= 0 || last_overview_idx > overviews_count) {
+    spdlog::warn(
+        "The \"last_overview_idx\" argument must be positive and less equal "
+        "than overviews' count");
+    return false;
+  }
   utils::CreateRasterPyra(source_raster_dataset.get());
 
-  // Create the source border for the source raster dataset
-  OGRGeometryUniquePtr 
-      source_border(utils::CreateBorderGeometry(source_raster_dataset.get())),
-      new_covered_polygon(source_border->clone());
+  // Create a border for the source raster and
+  int ratio(4);
+  OGRGeometryUniquePtr source_border(utils::CreateBorderGeometry(
+      source_raster_dataset.get(), ratio));
+  source_border.reset(source_border->Buffer(geotrans[1] * ratio * -2));
+  source_border.reset(source_border->Simplify(geotrans[1] * ratio * 1.5));
+  source_border->transformTo(composite_table_layer->GetSpatialRef());
+  OGRGeometryUniquePtr new_covered_polygon(source_border->clone());
   if (covered_border->IsEmpty() || !source_border->Intersect(covered_border)) {
-    // Continue the loop for the no intersection situation
+    // Skip for the no intersection situation
     spdlog::info(
         "Skipping updating the source border and the composite table layer "
         "for the no intersection situation");
+    spdlog::debug("Updating the covered border");
     covered_border->toMultiPolygon()->addGeometryDirectly(
         source_border->clone());
-    spdlog::debug("Updating the covered border - done");
+    spdlog::info("Updating the covered border - done");
   } else {
-    OGRMultiPolygon* _covered_border_(covered_border->toMultiPolygon());
+    OGRMultiPolygon* covered_multi_polygon(covered_border->toMultiPolygon());
 
     // Traverse all polygons in the covered border
-    for (int i = _covered_border_->getNumGeometries() - 1; i >= 0; i--) {
-      OGRGeometry* covered_polygon(_covered_border_->getGeometryRef(i));
+    for (int i = covered_multi_polygon->getNumGeometries() - 1; i >= 0; i--) {
+      OGRGeometry* covered_polygon(covered_multi_polygon->getGeometryRef(i));
 
       // Continue the loop for the no intersection situation 
       if (!source_border->Intersect(covered_polygon)) continue;
@@ -73,321 +106,515 @@ bool MosaickingBase::Run(
             "since the covered border contains the source border");
         return true;
       }
-      spdlog::info("Adding a subtask from the intersected border");
+
+      // Add a subtask
+      spdlog::info("Adding a subtask with an intersected covered poylgon");
       if (use_seamline) {
-        spdlog::debug("Creating the seamline vector");
+        spdlog::debug("Updating the source border with the seamline");
 
-        // Create the seamline layer
-        spdlog::debug("Creating the seamline layer");
-        GDALDatasetUniquePtr seamline_vector_dataset(
-            memory_driver_->Create("", 0, 0, 0, GDT_Unknown, nullptr));
-        OGRLayer* seamline_layer(seamline_vector_dataset->CreateLayer(
-            "", const_cast<OGRSpatialReference*>(
-                source_raster_dataset->GetSpatialRef()), wkbPolygon));
-        OGRFieldDefn label_field("label", OFTInteger);
-        seamline_layer->CreateField(&label_field);
-        spdlog::debug("Creating the seamline layer - done");
+        // Update the geotransform after reprojection
+        char* spatial_ref_wkt(nullptr);
+        composite_table_layer->GetSpatialRef()->exportToWkt(&spatial_ref_wkt);
+        std::unique_ptr<char[]> _spatial_ref_wkt(spatial_ref_wkt);
+        std::unique_ptr<void, void(*)(void*)> trans_arg(
+            GDALCreateGenImgProjTransformer3(
+                source_raster_dataset->GetProjectionRef(), geotrans,
+                spatial_ref_wkt, nullptr),
+            [](void* p) { GDALDestroyGenImgProjTransformer(p); });
+        int x_size, y_size;
+        GDALSuggestedWarpOutput(
+            source_raster_dataset.get(), GDALGenImgProjTransform,
+            trans_arg.get(), geotrans, &x_size, &y_size);
 
-        // Prepare data structures
         GDALDatasetUniquePtr
             covered_overlap_dataset(nullptr),
             new_overlap_dataset(nullptr),
             label_raster_dataset(nullptr);
-        OGRGeometryUniquePtr 
+        OGRGeometryUniquePtr
+            valid_geometry(source_border->Intersection(covered_polygon)),
+            buffered_valid_geometry(valid_geometry->Buffer(
+                geotrans[1] * ratio)),
             covered_overlap_geometry(nullptr),
             new_overlap_geometry(nullptr);
         int overviews_count(
             source_raster_dataset->GetRasterBand(1)->GetOverviewCount());
-        for (int i = overviews_count - 1; i >= 0; i--) {
+        for (int i = overviews_count - last_overview_idx; i >= 0; i--) {
           double downsample_factor(pow(2, i));
           spdlog::debug(
-              "Operating on the {} times downsampled overview", 
+              "Operating on the {} times downsampled overview",
               downsample_factor);
 
-          // Create overlap geometries in the first operation
+          // Create overlap geometries for the first loop
           if (!covered_overlap_geometry) {
             spdlog::debug(
-                "Initializing overlap geometries for the last overview");
+                "Initializing overlap geometries for the first loop");
             if (source_border->Contains(covered_polygon)) {
               spdlog::debug(
                   "Initializing overlap geometries in the surrounded case");
               covered_overlap_geometry.reset(covered_polygon->clone());
               new_overlap_geometry.reset(covered_overlap_geometry->Buffer(
-                  -5 * downsample_factor * geotrans[1]));
+                  -5 * downsample_factor * pow(2, last_overview_idx - 1) *
+                  geotrans[1]));
               new_overlap_geometry.reset(source_border->Difference(
                   new_overlap_geometry.get()));
             } else {
-              spdlog::debug(
+              spdlog::info(
                   "Initializing overlap geometries in the overlap case");
               covered_overlap_geometry.reset(
                   source_border->Intersection(covered_polygon));
               covered_overlap_geometry.reset(covered_overlap_geometry->Buffer(
-                  5 * downsample_factor * geotrans[1]));
+                  5 * downsample_factor * pow(2, last_overview_idx - 1) *
+                  geotrans[1]));
               new_overlap_geometry.reset(covered_overlap_geometry->clone());
             }
-            spdlog::debug(
-                "Initializing overlap geometries for the last overview - done");
+            spdlog::info(
+                "Initializing overlap geometries for the first loop - done");
           }
-          CreateOverlapDatasets(
-              composite_table_layer, source_raster_dataset.get(),
-              covered_overlap_geometry.get(), new_overlap_geometry.get(),
-              covered_overlap_dataset, new_overlap_dataset,
-              label_raster_dataset, downsample_factor);
-          UpdateLabelRasterDataset(
-              covered_overlap_dataset.get(), new_overlap_dataset.get(), 
-              label_raster_dataset, covered_overlap_geometry,
-              new_overlap_geometry, i ? nullptr : seamline_layer, i);
+          UpdateOverlapDatasets(
+              downsample_factor, geotrans, composite_table_layer,
+              source_raster_dataset.get(), covered_overlap_geometry.get(),
+              new_overlap_geometry.get(), covered_overlap_dataset,
+              new_overlap_dataset, label_raster_dataset);
+          UpdateMediums(
+              i, covered_overlap_dataset.get(), new_overlap_dataset.get(),
+              buffered_valid_geometry.get(), label_raster_dataset,
+              covered_overlap_geometry, new_overlap_geometry);
           spdlog::info(
               "Operating on the {} times downsampled overview - done",
               downsample_factor);
         }
-        spdlog::debug("Creating the seamline vector - done");
-        AddSeamline(seamline_layer, composite_table_layer, source_border);
+        UpdateResults(
+            covered_overlap_geometry.get(), new_overlap_geometry.get(),
+            covered_polygon, source_border, composite_table_layer);
+        spdlog::debug("Updating the source border with the seamline - done");
       } else {
         spdlog::debug("Updating the source border without the seamline");
-        for (const auto& composite_table_feature : composite_table_layer) {
-          OGRGeometry* composite_table_geometry(
-              composite_table_feature->GetGeometryRef());
-          if (source_border->Intersect(composite_table_geometry))
-            source_border.reset(
-                source_border->Difference(composite_table_geometry));
+        for (const auto& feature : composite_table_layer) {
+          OGRGeometry* geometry(feature->GetGeometryRef());
+          if (source_border->Intersect(geometry))
+            source_border.reset(source_border->Difference(geometry));
         }
-        spdlog::debug("Updating the source border without the seamline - done");
+        spdlog::debug(
+            "Updating the source border without the seamline - done");
       }
-      // Delete the processed polygon in the covered border
+
+      // Delete the processed covered polygon and union the new covered polygon
       new_covered_polygon.reset(new_covered_polygon->Union(covered_polygon));
-      _covered_border_->removeGeometry(i);
+      covered_multi_polygon->removeGeometry(i);
     }
-    // Add the union polygon in the covered border
-    _covered_border_->addGeometryDirectly(new_covered_polygon.get());
-    new_covered_polygon.release();
-    spdlog::debug("Updating the covered border - done");
-    spdlog::info("Adding the subtask from the intersected border - done");
+
+    // Add the new covered polygon
+    spdlog::debug("Updating the covered border");
+    covered_multi_polygon->addGeometryDirectly(new_covered_polygon.release());
+    spdlog::info("Updating the covered border - done");
+    spdlog::info(
+        "Adding a subtask with an intersected covered poylgon - done");
   }
-  // Create the feature for the composite table
-  OGRFeatureUniquePtr composite_table_feature(OGRFeature::CreateFeature(
+
+  // Create a feature for the source border
+  spdlog::debug("Create a feature for the source border");
+  OGRFeatureUniquePtr feature(OGRFeature::CreateFeature(
       composite_table_layer->GetLayerDefn()));
-  if (composite_table_layer->GetSpatialRef())
-    source_border->transformTo(composite_table_layer->GetSpatialRef());
-  composite_table_feature->SetField(0, raster_path.c_str());
-  composite_table_feature->SetGeometryDirectly(source_border.get());
-  composite_table_layer->CreateFeature(composite_table_feature.get());
-  source_border.release();
-  spdlog::debug("Creating the feature with the source border - done");
+  feature->SetField(0, raster_path.c_str());
+  feature->SetGeometryDirectly(source_border.release());
+  composite_table_layer->CreateFeature(feature.get());
+  spdlog::debug("Create a feature for the source border - done");
   spdlog::info("Running the mosaicking task - done");
   return true;
 }
 
-void MosaickingBase::CreateOverlapDatasets(
+void MosaickingBase::UpdateOverlapDatasets(
+    double downsample_factor,
+    double* geotrans,
     OGRLayer* composite_table_layer,
     GDALDataset* source_raster_dataset,
     OGRGeometry* covered_overlap_geometry,
     OGRGeometry* new_overlap_geometry,
     GDALDatasetUniquePtr& covered_overlap_dataset,
     GDALDatasetUniquePtr& new_overlap_dataset,
-    GDALDatasetUniquePtr& label_raster_dataset,
-    double downsample_factor) {
+    GDALDatasetUniquePtr& label_raster_dataset) {
+  spdlog::debug("Updating overlap datasets");
+
   // Create the union range and geotransform
-  spdlog::debug("Creating overlap datasets");
-  double source_geotrans[6], source_inv_geotrans[6], union_geotrans[6], x, y;
-  source_raster_dataset->GetGeoTransform(source_geotrans);
-  GDALInvGeoTransform(source_geotrans, source_inv_geotrans);
   OGRGeometryUniquePtr union_geometry(
       covered_overlap_geometry->Union(new_overlap_geometry));
   OGREnvelope enve;
   union_geometry->getEnvelope(&enve);
+  double inv_geotrans[6], union_geotrans[6], x, y;
+  GDALInvGeoTransform(geotrans, inv_geotrans);
   int range[4];
-  GDALApplyGeoTransform(source_inv_geotrans, enve.MinX, enve.MaxY, &x, &y);
+  GDALApplyGeoTransform(inv_geotrans, enve.MinX, enve.MaxY, &x, &y);
   range[0] = static_cast<int>(floor(x));
   range[1] = static_cast<int>(floor(y));
-  GDALApplyGeoTransform(source_inv_geotrans, enve.MaxX, enve.MinY, &x, &y);
+  GDALApplyGeoTransform(inv_geotrans, enve.MaxX, enve.MinY, &x, &y);
   range[2] = static_cast<int>(ceil((x - range[0]) / downsample_factor));
   range[3] = static_cast<int>(ceil((y - range[1]) / downsample_factor));
   GDALApplyGeoTransform(
-      source_geotrans, range[0], range[1], union_geotrans,
-      union_geotrans + 3);
-  union_geotrans[1] = downsample_factor * source_geotrans[1];
+      geotrans, range[0], range[1], union_geotrans, union_geotrans + 3);
+  union_geotrans[1] = downsample_factor * geotrans[1];
   union_geotrans[2] = 0;
   union_geotrans[4] = 0;
-  union_geotrans[5] = downsample_factor * source_geotrans[5];
+  union_geotrans[5] = downsample_factor * geotrans[5];
+  OGRSpatialReference* spatial_ref(composite_table_layer->GetSpatialRef());
   spdlog::debug("Creating the union range and geotransform - done");
 
-  // Create the covered overlap dataset
+  // Update the covered overlap dataset
   covered_overlap_dataset.reset(mem_driver_->Create(
       "", range[2], range[3], 3, GDT_Byte, nullptr));
   covered_overlap_dataset->SetGeoTransform(union_geotrans);
-  covered_overlap_dataset->SetSpatialRef(
-      source_raster_dataset->GetSpatialRef());
+  covered_overlap_dataset->SetSpatialRef(spatial_ref);
   std::vector<GDALDataset*> rasters_dataset;
-  for (const auto& composite_table_feature : composite_table_layer)
-    if (composite_table_feature->GetGeometryRef()->Intersect(
-        covered_overlap_geometry))
+  std::vector<OGRGeometry*> intersected_geometries;
+  for (const auto& feature : composite_table_layer)
+    if (feature->GetGeometryRef()->Intersect(covered_overlap_geometry)) {
       rasters_dataset.push_back(GDALDataset::Open(
-          composite_table_feature->GetFieldAsString(0), 
-          GDAL_OF_RASTER | GDAL_OF_READONLY));
+          feature->GetFieldAsString(0), GDAL_OF_RASTER | GDAL_OF_READONLY));
+      intersected_geometries.push_back(
+          feature->GetGeometryRef()->Intersection(covered_overlap_geometry));
+    }
   utils::WarpByGeometry(
-      rasters_dataset, covered_overlap_dataset.get(), covered_overlap_geometry);
-  for (const auto& raster_dataset : rasters_dataset)
-    GDALClose(raster_dataset);
-  spdlog::debug("Creating the covered overlap dataset - done");
+      rasters_dataset, intersected_geometries, covered_overlap_dataset);
+  for (int i = 0; i < rasters_dataset.size(); i++) {
+    GDALClose(rasters_dataset[i]);
+    OGRGeometryFactory::destroyGeometry(intersected_geometries[i]);
+  }
+  spdlog::debug("Updating the covered overlap dataset - done");
 
-  // Create the new overlap dataset
+  // Update the new overlap dataset
   new_overlap_dataset.reset(mem_driver_->Create(
       "", range[2], range[3], 3, GDT_Byte, nullptr));
   new_overlap_dataset->SetGeoTransform(union_geotrans);
-  new_overlap_dataset->SetSpatialRef(source_raster_dataset->GetSpatialRef());
+  new_overlap_dataset->SetSpatialRef(spatial_ref);
   utils::WarpByGeometry(
-      { source_raster_dataset }, new_overlap_dataset.get(),
-      new_overlap_geometry);
-  spdlog::debug("Creating the new overlap dataset - done");
+      { source_raster_dataset }, { new_overlap_geometry },
+      new_overlap_dataset);
+  spdlog::debug("Updating the new overlap dataset - done");
 
-  // Create the label raster dataset if necessary
+  // Update the label raster dataset if necessary
   if (label_raster_dataset) {
-    GDALDataset* _label_raster_dataset(mem_driver_->Create(
+    GDALDatasetUniquePtr _label_raster_dataset(mem_driver_->Create(
         "", range[2], range[3], 1, GDT_Byte, nullptr));
     _label_raster_dataset->SetGeoTransform(union_geotrans);
-    _label_raster_dataset->SetSpatialRef(label_raster_dataset->GetSpatialRef());
+    _label_raster_dataset->SetSpatialRef(spatial_ref);
     utils::WarpByGeometry(
-        { label_raster_dataset.get() }, _label_raster_dataset, nullptr,
+        { label_raster_dataset.get() }, { nullptr }, _label_raster_dataset,
         GRA_NearestNeighbour);
-    label_raster_dataset.reset(_label_raster_dataset);
-    spdlog::debug("Creating the label raster dataset - done");
+    label_raster_dataset.swap(_label_raster_dataset);
+    spdlog::debug("Updating the label raster dataset - done");
   }
-  spdlog::debug("Creating overlap datasets - done");
+  spdlog::debug("Updating overlap datasets - done");
 }
 
-void MosaickingBase::UpdateLabelRasterDataset(
+void MosaickingBase::UpdateMediums(
+    int idx,
     GDALDataset* covered_overlap_dataset,
     GDALDataset* new_overlap_dataset,
+    OGRGeometry* valid_geometry,
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& covered_overlap_geometry,
-    OGRGeometryUniquePtr& new_overlap_geometry,
-    OGRLayer* seamline_layer,
-    int overview_idx) {
-  spdlog::debug("Updating the label raster dataset");
+    OGRGeometryUniquePtr& new_overlap_geometry) {
+  // Execute the mosaicking algorithm on the overlap datasets
+  double geotrans[6];
+  new_overlap_dataset->GetGeoTransform(geotrans);
   cv::Mat covered_mat, new_mat, label_mat;
   PrepareData(
       covered_overlap_dataset, new_overlap_dataset, label_raster_dataset.get(),
       covered_mat, new_mat, label_mat);
-  OGRGeometryUniquePtr label0_geometry(nullptr), label1_geometry(nullptr);
-  CreateSeamlineGeometries(
-      new_overlap_dataset, covered_mat, new_mat, label_mat,
-      label_raster_dataset, label0_geometry, label1_geometry, seamline_layer);
+  ExecuteMosaicking(
+      covered_mat, new_mat, label_mat, geotrans,
+      const_cast<OGRSpatialReference*>(
+          covered_overlap_dataset->GetSpatialRef()),
+      label_raster_dataset, covered_overlap_geometry, new_overlap_geometry);
 
-  // Create overlap geometries if needed
-  if (!seamline_layer) {
-    // Create the seamline line string
-    OGRGeometryUniquePtr seamline_geometry(
-        label0_geometry->Intersection(label1_geometry.get()));
-    if (seamline_geometry->getGeometryType() == wkbMultiLineString) {
-      nlohmann::json 
-          overlap_geometry_json(nlohmann::json::parse(
-              seamline_geometry->exportToJson())),
-          overlap_line_string_json;
-      overlap_line_string_json["type"] = "LineString";
-      overlap_line_string_json["coordinates"] = {};
-      for (const auto& line_string : overlap_geometry_json.at("coordinates"))
-        overlap_line_string_json["coordinates"].push_back(*line_string.begin());
-      seamline_geometry.reset(OGRGeometryFactory::createFromGeoJson(
-          overlap_line_string_json.dump().c_str()));
+  // Create the seamline line string
+  OGRGeometryUniquePtr seamline_geometry(
+      covered_overlap_geometry->Intersection(new_overlap_geometry.get()));
+  std::vector<std::pair<double, double>> seamline_coors;
+  CreateSeamlineLineString(seamline_geometry, seamline_coors);
+  covered_overlap_geometry.reset(OGRGeometryFactory::forceToPolygon(
+      covered_overlap_geometry.release()));
+  new_overlap_geometry.reset(OGRGeometryFactory::forceToPolygon(
+      new_overlap_geometry.release()));
+
+  if (idx == 0) {
+    if (tol_) {
+      // Rearrange points in label geometries
+      RearrangeLabelGeometries(
+          seamline_coors, covered_overlap_geometry, new_overlap_geometry);
+
+      // Simplify label geometries on the last operation
+      SimplifyLabelGeometries(
+          tol_ * geotrans[1], seamline_geometry, covered_overlap_geometry,
+          new_overlap_geometry);
     }
+  } else {
+    spdlog::debug("Updating the overlap geometries");
 
     // Create the seamline polygon and the buffered seamline polygon
-    //OGRGeometryUniquePtr valid_geometry(
-    //    label0_geometry->Union(label1_geometry.get()));
-    double geotrans[6], buffer(fmin(30, 5 * (overview_idx + 1)));
-    new_overlap_dataset->GetGeoTransform(geotrans);
     seamline_geometry.reset(seamline_geometry->Simplify(5 * geotrans[1]));
-    seamline_geometry.reset(seamline_geometry->Buffer(buffer * geotrans[1]));
-    //seamline_geometry.reset(
-    //    seamline_geometry->Intersection(valid_geometry.get()));
+    seamline_geometry.reset(seamline_geometry->Buffer(
+        buffers_per_unit_[idx] * geotrans[1]));
+    seamline_geometry.reset(seamline_geometry->Intersection(
+        valid_geometry));
     OGRGeometryUniquePtr buffered_overlap_geometry(
-        seamline_geometry->Buffer(buffer * geotrans[1]));
+        seamline_geometry->Buffer(buffers_per_unit_[idx] * geotrans[1]));
 
-    // Create overlap geometries
+    // Update overlap geometries
     covered_overlap_geometry.reset(
-        label0_geometry->Union(seamline_geometry.get()));
+        covered_overlap_geometry->Union(seamline_geometry.get()));
     covered_overlap_geometry.reset(covered_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
-    new_overlap_geometry.reset(label1_geometry->Union(seamline_geometry.get()));
+    new_overlap_geometry.reset(
+        new_overlap_geometry->Union(seamline_geometry.get()));
     new_overlap_geometry.reset(new_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
+    spdlog::debug("Updating the overlap geometries - done");
   }
-  spdlog::debug("Updating the label raster dataset - done");
 }
 
-void MosaickingBase::AddSeamline(
-    OGRLayer* seamline_layer,
-    OGRLayer* composite_table_layer,
-    OGRGeometryUniquePtr& source_border) {
-  spdlog::debug(
-      "Add the seamline to the composite table and the source border");
-  OGRGeometryUniquePtr covered_geometry(nullptr), new_geometry(nullptr);
-  for (const auto& seamline_feature : seamline_layer) {
-    OGRGeometry* seamline_geometry(seamline_feature->GetGeometryRef());
-    switch (seamline_feature->GetFieldAsInteger(0)) {
-      case 100: {
-        covered_geometry.reset(seamline_geometry->clone());
-        break;
-      }
-      case 200: {
-        new_geometry.reset(seamline_geometry->clone());
-      }
-    }
+void MosaickingBase::CreateSeamlineLineString(
+    OGRGeometryUniquePtr& seamline_geometry,
+    std::vector<std::pair<double, double>>& seamline_coors) {
+  seamline_coors.resize(0);
+  nlohmann::json seamline_geometry_json(nlohmann::json::parse(
+      seamline_geometry->exportToJson()));
+  auto it(seamline_geometry_json.at("coordinates").begin());
+  std::vector<std::pair<double, double>> coors{ *it->begin() };
+  while (it != seamline_geometry_json.at("coordinates").end() &&
+      (it->rbegin()->at(0) == coors.back().first ||
+      it->rbegin()->at(1) == coors.back().second)) {
+    coors.push_back(*it->rbegin());
+    it++;
   }
-  OGRGeometryUniquePtr diff_geometry(
-      source_border->Difference(covered_geometry.get()));
+  while (it != seamline_geometry_json.at("coordinates").end()) {
+    seamline_coors.push_back(*it->begin());
+    it++;
+  }
+  seamline_coors.insert(seamline_coors.end(), coors.begin(), coors.end());
+  nlohmann::json seamline_line_string_json;
+  seamline_line_string_json["type"] = "LineString";
+  seamline_line_string_json["coordinates"] = seamline_coors;
+  seamline_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+      seamline_line_string_json.dump().c_str()));
+}
 
+void MosaickingBase::RearrangeLabelGeometries(
+    const std::vector<std::pair<double, double>>& seamline_coors,
+    OGRGeometryUniquePtr& label0_geometry,
+    OGRGeometryUniquePtr& label1_geometry) {
+  nlohmann::json
+      label0_geometry_json(nlohmann::json::parse(
+          label0_geometry->exportToJson())),
+      label1_geometry_json(nlohmann::json::parse(
+          label1_geometry->exportToJson()));
+  if (std::find(
+          seamline_coors.begin(), seamline_coors.end(),
+          label0_geometry_json.at("coordinates")[0][0]
+          .get<std::pair<double, double>>()) != seamline_coors.end()) {
+    std::vector<std::pair<double, double>> old_coor, new_coors;
+    label0_geometry_json.at("coordinates")[0].get_to(old_coor);
+    auto temp_it1(seamline_coors.begin());
+    auto temp_it2(seamline_coors.rbegin());
+    decltype(old_coor.rbegin()) rit1, rit2;
+    do {
+      rit1 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it1);
+      temp_it1++;
+    } while (rit1 == old_coor.rend());
+    do {
+      rit2 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it2);
+      temp_it2++;
+    } while (rit2 == old_coor.rend());
+    auto it1((rit1 + 1).base()), it2((rit2 + 1).base());
+    if (it2 > it1) {
+      new_coors.insert(new_coors.end(), it1 + (it2 - it1) / 2, it2);
+      new_coors.insert(
+          new_coors.end(), seamline_coors.rbegin(), seamline_coors.rend());
+      new_coors.insert(new_coors.end(), it1 + 1, it1 + (it2 - it1) / 2 + 1);
+    } else {
+      new_coors.insert(new_coors.end(), it2 + (it1 - it2) / 2, it1);
+      new_coors.insert(
+          new_coors.end(), seamline_coors.begin(), seamline_coors.end());
+      new_coors.insert(new_coors.end(), it2 + 1, it2 + (it1 - it2) / 2 + 1);
+    }
+    label0_geometry_json.at("coordinates")[0] = new_coors;
+    label0_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+        label0_geometry_json.dump().c_str()));
+  }
+  if (std::find(
+          seamline_coors.begin(), seamline_coors.end(),
+          label1_geometry_json.at("coordinates")[0][0]
+          .get<std::pair<double, double>>()) != seamline_coors.end()) {
+    std::vector<std::pair<double, double>> old_coor, new_coors;
+    label1_geometry_json.at("coordinates")[0].get_to(old_coor);
+    auto temp_it1(seamline_coors.begin());
+    auto temp_it2(seamline_coors.rbegin());
+    decltype(old_coor.rbegin()) rit1, rit2;
+    do {
+      rit1 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it1);
+      temp_it1++;
+    } while (rit1 == old_coor.rend());
+    do {
+      rit2 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it2);
+      temp_it2++;
+    } while (rit2 == old_coor.rend());
+    auto it1((rit1 + 1).base()), it2((rit2 + 1).base());
+    if (it2 > it1) {
+      new_coors.insert(new_coors.end(), it1 + (it2 - it1) / 2, it2);
+      new_coors.insert(
+          new_coors.end(), seamline_coors.rbegin(), seamline_coors.rend());
+      new_coors.insert(new_coors.end(), it1 + 1, it1 + (it2 - it1) / 2 + 1);
+    } else {
+      new_coors.insert(new_coors.end(), it2 + (it1 - it2) / 2, it1);
+      new_coors.insert(
+          new_coors.end(), seamline_coors.begin(), seamline_coors.end());
+      new_coors.insert(new_coors.end(), it2 + 1, it2 + (it1 - it2) / 2 + 1);
+    }
+    label1_geometry_json.at("coordinates")[0] = new_coors;
+    label1_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+        label1_geometry_json.dump().c_str()));
+  }
+}
+
+void MosaickingBase::SimplifyLabelGeometries(
+    double tol,
+    OGRGeometryUniquePtr& seamline_line_string,
+    OGRGeometryUniquePtr& label0_geometry,
+    OGRGeometryUniquePtr& label1_geometry) {
+  seamline_line_string.reset(seamline_line_string->Simplify(tol));
+  nlohmann::json
+      label0_geometry_json(nlohmann::json::parse(
+          label0_geometry->exportToJson())),
+      label1_geometry_json(nlohmann::json::parse(
+          label1_geometry->exportToJson())),
+      seamline_line_string_json(nlohmann::json::parse(
+          seamline_line_string->exportToJson()));
+
+  // Simplify the label0 geometry
+  spdlog::debug("Simplify the label0 geometry");
+  std::list<std::pair<double, double>> seamline_coors;
+  std::vector<std::pair<double, double>> label_coors, label_new_coors;
+  seamline_line_string_json.at("coordinates").get_to(seamline_coors);
+  label0_geometry_json.at("coordinates")[0].get_to(label_coors);
+  auto it1(std::find(
+          label_coors.begin(), label_coors.end(), seamline_coors.front())),
+      it2(std::find(
+          label_coors.begin(), label_coors.end(), seamline_coors.back()));
+  while (it1 == label_coors.end()) {
+    seamline_coors.pop_front();
+    it1 = std::find(
+        label_coors.begin(), label_coors.end(), seamline_coors.front());
+  }
+  while (it2 == label_coors.end()) {
+    seamline_coors.pop_back();
+    it2 = std::find(
+        label_coors.begin(), label_coors.end(), seamline_coors.back());
+  }
+  if (it2 > it1) {
+    label_new_coors.insert(label_new_coors.end(), label_coors.begin(), it1);
+    label_new_coors.insert(
+        label_new_coors.end(), seamline_coors.begin(), seamline_coors.end());
+    label_new_coors.insert(label_new_coors.end(), it2 + 1, label_coors.end());
+  } else {
+    label_new_coors.insert(label_new_coors.end(), label_coors.begin(), it2);
+    label_new_coors.insert(
+        label_new_coors.end(), seamline_coors.rbegin(), seamline_coors.rend());
+    label_new_coors.insert(label_new_coors.end(), it1 + 1, label_coors.end());
+  }
+  label0_geometry_json.at("coordinates")[0] = label_new_coors;
+  label0_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+      label0_geometry_json.dump().c_str()));
+  spdlog::info("Simplify the label0 geometry - done");
+
+  // Simplify the label1 geometry
+  spdlog::debug("Simplify the label1 geometry");
+  label_new_coors.resize(0);
+  label1_geometry_json.at("coordinates")[0].get_to(label_coors);
+  it1 = std::find(
+      label_coors.begin(), label_coors.end(), seamline_coors.front());
+  it2 = std::find(
+      label_coors.begin(), label_coors.end(), seamline_coors.back());
+  while (it1 == label_coors.end()) {
+    seamline_coors.pop_front();
+    it1 = std::find(
+        label_coors.begin(), label_coors.end(), seamline_coors.front());
+  }
+  while (it2 == label_coors.end()) {
+    seamline_coors.pop_back();
+    it2 = std::find(
+        label_coors.begin(), label_coors.end(), seamline_coors.back());
+  }
+  if (it2 > it1) {
+    label_new_coors.insert(label_new_coors.end(), label_coors.begin(), it1);
+    label_new_coors.insert(
+        label_new_coors.end(), seamline_coors.begin(), seamline_coors.end());
+    label_new_coors.insert(label_new_coors.end(), it2 + 1, label_coors.end());
+  } else {
+    label_new_coors.insert(label_new_coors.end(), label_coors.begin(), it2);
+    label_new_coors.insert(
+        label_new_coors.end(), seamline_coors.rbegin(),seamline_coors.rend());
+    label_new_coors.insert(label_new_coors.end(), it1 + 1, label_coors.end());
+  }
+  label1_geometry_json.at("coordinates")[0] = label_new_coors;
+  label1_geometry.reset(OGRGeometryFactory::createFromGeoJson(
+      label1_geometry_json.dump().c_str()));
+  spdlog::info("Simplify the label1 geometry - done");
+}
+
+void MosaickingBase::UpdateResults(
+    OGRGeometry* covered_geometry,
+    OGRGeometry* new_geometry,
+    OGRGeometry* covered_polygon,
+    OGRGeometryUniquePtr& source_border,
+    OGRLayer* composite_table_layer) {
   // Update the source border
+  spdlog::debug("Updating the source border");
+  OGRGeometryUniquePtr diff_geometry(
+      source_border->Difference(covered_geometry));
+  source_border.reset(source_border->Difference(covered_polygon));
   for (const auto& geometry : diff_geometry->toMultiPolygon())
-    if (geometry->Intersect(new_geometry.get())) {
-      source_border.reset(geometry->clone());
+    if (geometry->Intersect(new_geometry)) {
+      source_border.reset(source_border->Union(geometry));
       break;
     }
-  spdlog::debug("Updating the source border with the seamline - done");
+  spdlog::info("Updating the source border - done");
 
   // Update the composite table
+  spdlog::debug("Updating the composite table");
   std::vector<std::pair<GIntBig, OGRGeometryUniquePtr>> dislocated_geometries;
-  for (auto& composite_table_feature : composite_table_layer) {
-    GIntBig id(composite_table_feature->GetFID());
-    OGRGeometry* composite_table_geometry(
-        composite_table_feature->GetGeometryRef());
-    if (covered_geometry->Intersect(composite_table_geometry)) {
-      diff_geometry.reset(
-          composite_table_geometry->Difference(source_border.get()));
-      if (diff_geometry->getGeometryType() == wkbPolygon) {
-        dislocated_geometries.emplace_back(id, diff_geometry->clone());
-      } else {
-        bool be_head(true);
-        double max_area(0.0);
-        for (const auto& geometry : diff_geometry->toMultiPolygon()) {
-          dislocated_geometries.emplace_back(id, geometry->clone());
-          if (!be_head && geometry->get_Area() < max_area) {
-            dislocated_geometries[dislocated_geometries.size() - 2].second.swap(
-                dislocated_geometries.back().second);
-          } else {
-            max_area = geometry->get_Area();
-          }
-          be_head = false;
+  for (auto& feature : composite_table_layer) {
+    GIntBig id(feature->GetFID());
+    OGRGeometry* geometry(feature->GetGeometryRef());
+    if (!covered_geometry->Intersect(geometry)) continue;
+    diff_geometry.reset(geometry->Difference(source_border.get()));
+    if (diff_geometry->getGeometryType() == wkbPolygon) {
+      dislocated_geometries.emplace_back(id, diff_geometry->clone());
+    } else {
+      bool be_head(true);
+      double max_area(0.0);
+      for (const auto& geometry : diff_geometry->toMultiPolygon()) {
+        dislocated_geometries.emplace_back(id, geometry->clone());
+        if (!be_head && geometry->get_Area() < max_area) {
+          dislocated_geometries[dislocated_geometries.size() - 2].second.swap(
+              dislocated_geometries.back().second);
+        } else {
+          max_area = geometry->get_Area();
         }
+        be_head = false;
       }
-      composite_table_feature->SetGeometry(
-          dislocated_geometries.back().second.get());
-      composite_table_layer->SetFeature(composite_table_feature.get());
-      dislocated_geometries.pop_back();
     }
+    feature->SetGeometry(dislocated_geometries.back().second.get());
+    composite_table_layer->SetFeature(feature.get());
+    dislocated_geometries.pop_back();
   }
   for (const auto& info : dislocated_geometries)
-    for (auto& composite_table_feature : composite_table_layer)
-      if (info.first != composite_table_feature->GetFID() &&
-          info.second->Touches(composite_table_feature->GetGeometryRef())) {
-        composite_table_feature->SetGeometry(
-            info.second->Union(composite_table_feature->GetGeometryRef()));
-        composite_table_layer->SetFeature(composite_table_feature.get());
+    for (auto& feature : composite_table_layer)
+      if (info.first != feature->GetFID() &&
+          info.second->Touches(feature->GetGeometryRef())) {
+        feature->SetGeometryDirectly(
+            info.second->Union(feature->GetGeometryRef()));
+        composite_table_layer->SetFeature(feature.get());
       }
-  spdlog::debug("Updating the composite table with the seamline - done");
-  spdlog::debug(
-      "Add the seamline to the composite table and the source border - done");
+  spdlog::info("Updating the composite table - done");
 }
 
 } // mosaicking

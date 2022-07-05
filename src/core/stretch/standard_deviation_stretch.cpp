@@ -14,7 +14,7 @@
 namespace rs_toolset {
 namespace stretch {
 
-bool StandardDeviationImpl::AddSingleBlock(
+bool StandardDeviationImpl::AddStatForSingleBlock(
     const cv::Mat& mat,
     int band) {
   if (mat.channels() != 1) return false;
@@ -30,17 +30,17 @@ bool StandardDeviationImpl::AddSingleBlock(
   return true;
 }
 
-bool StandardDeviationImpl::AddMultiBlock(const cv::Mat& mat) {
+bool StandardDeviationImpl::AddStatForMultiBlock(const cv::Mat& mat) {
   if (pixels_counts_.size() != 0 && pixels_counts_.size() != mat.channels())
     return false;
   std::vector<cv::Mat> mats;
   cv::split(mat, mats);
   for (int b = 0; b < mats.size(); b++)
-    AddSingleBlock(mats[b], b);
+    AddStatForSingleBlock(mats[b], b);
   return true;
 }
 
-void StandardDeviationImpl::CreateThresholds(
+void StandardDeviationImpl::CreateThres(
     std::vector<int>& low_thres,
     std::vector<int>& high_thres) {
   spdlog::debug("Creating thresholds");
@@ -61,16 +61,10 @@ void StandardDeviationImpl::CreateThresholds(
     high_thres.push_back(static_cast<int>(round(
         means[b] + scale_ * stddevs[b])));
   }
-
-  // Clear statistic after creating thresholds
-  pixels_counts_.resize(0);
-  sums_.resize(0);
-  square_sums_.resize(0);
   spdlog::info("Creating thresholds - done");
 }
 
-std::shared_ptr<StandardDeviation> StandardDeviation::Create(
-    double scale) {
+std::shared_ptr<StandardDeviation> StandardDeviation::Create(double scale) {
   return std::make_shared<StandardDeviationImpl>(scale);
 }
 

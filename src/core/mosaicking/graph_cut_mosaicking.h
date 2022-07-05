@@ -24,15 +24,17 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
   GraphCutImpl(
       double grad_term_exp,
       double diff_term_low_trunc,
-      double diff_term_high_trunc)
-      : grad_term_exp_(grad_term_exp), 
-        diff_term_low_trunc_(diff_term_low_trunc), 
+      double diff_term_high_trunc,
+      double tol)
+      : MosaickingBase(tol),
+        grad_term_exp_(grad_term_exp),
+        diff_term_low_trunc_(diff_term_low_trunc),
         diff_term_high_trunc_(diff_term_high_trunc) {
     spdlog::info(
         "Creating the graph cut mosaicking with\n"
-        "- Gradient term exponential: {}\n"
-        "- Difference term low trunction: {}\n"
-        "- Difference term high trunction: {}", 
+        " - Gradient term exponential: {}\n"
+        " - Difference term low trunction: {}\n"
+        " - Difference term high trunction: {}",
         grad_term_exp, diff_term_low_trunc, diff_term_high_trunc);
   }
   GraphCutImpl(const GraphCutImpl&) = delete;
@@ -65,26 +67,18 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       cv::Mat& new_mat,
       cv::Mat& label_mat) override;
 
-  void CreateSeamlineGeometries(
-      GDALDataset* new_overlap_dataset,
+  void ExecuteMosaicking(
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
       const cv::Mat& label_mat,
-      GDALDatasetUniquePtr& seamline_raster_dataset,
+      double* geotrans,
+      OGRSpatialReference* spatial_ref,
+      GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& label0_geometry,
-      OGRGeometryUniquePtr& label1_geometry,
-      OGRLayer* seamline_layer) override;
+      OGRGeometryUniquePtr& label1_geometry) override;
 
-  /// <summary>
-  /// Create the lightness mat from the given dataset
-  /// </summary>
-  /// <param name="dataset">The given dataset</param>
-  /// <returns>The output lightness mat</returns>
   cv::Mat CreateLightnessMat(GDALDataset* dataset);
 
-  /// <summary>
-  /// Calculate the smooth cost in the graph cut algorithm
-  /// </summary>
   static int SmoothCost(
       int site1,
       int site2,
@@ -97,7 +91,7 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
   double diff_term_high_trunc_;
 };
 
-} // mosaicking  
+} // mosaicking
 } // rs_toolset
 
 #endif // RS_TOOLSET_SRC_CORE_MOSAICKING_GRAPH_CUT_MOSAICKING_H_

@@ -38,11 +38,11 @@ class MosaickingContainerImpl final
 
   bool AddTask(
       const std::string& raster_path,
+      int last_over_view_idx,
       bool use_seamline) override;
 
   bool ExportCompositeTableVector(
       const std::string& composit_table_path,
-      double unit,
       double buffer,
       double tol) override;
 
@@ -52,14 +52,15 @@ class MosaickingContainerImpl final
       const std::string& mosaicking_raster_path,
       const std::string& composit_table_path,
       const std::string& rasters_dir,
-      double reso) override;
+      double reso,
+      double blend_dist) override;
  
  private:
   std::shared_ptr<MosaickingInterface> mosaicking_;
 
   GDALDataset* composite_table_dataset_;
   OGRLayer* composite_table_layer_;
-  OGRGeometry* covered_border_; // multipolygon
+  OGRGeometry* covered_border_; // type is multipolygon
 };
 
 } // mosaicking

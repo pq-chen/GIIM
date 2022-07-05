@@ -12,32 +12,33 @@
 namespace rs_toolset {
 namespace stretch {
 
-bool PercentClipImpl::AddSingleBlock(
+bool PercentClipImpl::AddStatForSingleBlock(
     const cv::Mat& mat,
     int band) {
   if (mat.channels() != 1) return false;
+  std::vector<cv::Mat> hist_mats(utils::CreateHist(mat));
   if (hist_mats_.size() <= band) {
-    hist_mats_.push_back(utils::CalcHist(mat)[0]);
+    hist_mats_.push_back(hist_mats[0]);
   } else {
-    hist_mats_[band] += utils::CalcHist(mat)[0];
+    hist_mats_[band] += hist_mats[0];
   }
   return true;
 }
 
-bool PercentClipImpl::AddMultiBlock(const cv::Mat& mat) {
+bool PercentClipImpl::AddStatForMultiBlock(const cv::Mat& mat) {
   if (hist_mats_.size() != 0 && hist_mats_.size() != mat.channels())
     return false;
   if (!hist_mats_.size()) {
-    hist_mats_ = utils::CalcHist(mat);
+    hist_mats_ = utils::CreateHist(mat);
   } else {
-    std::vector<cv::Mat> hist_mats(utils::CalcHist(mat));
+    std::vector<cv::Mat> hist_mats(utils::CreateHist(mat));
     for (int b = 0; b < mat.channels(); b++)
       hist_mats_[b] += hist_mats[b];
   }
   return true;
 }
 
-void PercentClipImpl::CreateThresholds(
+void PercentClipImpl::CreateThres(
     std::vector<int>& low_thres,
     std::vector<int>& high_thres) {
   spdlog::debug("Creating thresholds");
@@ -65,9 +66,6 @@ void PercentClipImpl::CreateThresholds(
       }
     }
   }
-
-  // Clear histogram mats after creating thresholds
-  hist_mats_.resize(0);
   spdlog::info("Creating thresholds - done");
 }
 

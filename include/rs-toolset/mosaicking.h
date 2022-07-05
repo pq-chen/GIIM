@@ -28,40 +28,42 @@ namespace mosaicking {
 class RS_TOOLSET_API MosaickingInterface {
  public:
   /**
-   * @brief Run the mosaicking algorithm on the given raster with the composite table and the covered border
-   * @param raster_path[in]: The given raster path
-   * @param[in,out] composite_table_layer: The composite table layer
-   * @param covered_border[in,out]: The covered border
-   * @param[in] use_seamline: Whether uses the seamline, default is false
+   * @brief Run the mosaicking algorithm on the given raster with the former composite table and the covered border
+   * @param[in] raster_path The given raster path
+   * @param[in,out] composite_table_layer The former composite table layer
+   * @param[in,out] covered_border The former covered border
+   * @param[in] last_overview_idx The last overview index, default is 3 and must be positive
+   * @param[in] use_seamline Whether uses the seamline, default is false
    * @return Running state
-   * @warning This class should be used as the argument of the mosaicking container
+   * @note This class should be used as the argument of the mosaicking container instead of running alone
   */
   virtual bool Run(
       const std::string& raster_path,
       OGRLayer* composite_table_layer,
       OGRGeometry* covered_border,
+      int last_overview_idx = 3,
       bool use_seamline = false) = 0;
 };
 
-/** @brief Graph cut mosaicking class implementing the graph cut algorithm */
+/** @brief Graph cut mosaicking class implementing the graph cut mosaicking algorithm */
 class RS_TOOLSET_API GraphCut : virtual public MosaickingInterface {
  public:
-   /**
-    * @brief Create the graph cut mosaicking shared pointer
-    * @param[in] grad_term_exp: The gradient term exponential
-    * @param[in] diff_term_low_trunc: The difference term low trunction
-    * @param[in] diff_term_high_trunc: The difference term high trunction
-    * @return The output graph cut mosaicking shared pointer
-   */
-   static std::shared_ptr<GraphCut> Create(
+  /**
+   * @brief Create a graph cut mosaicking shared pointer
+   * @param[in] grad_term_exp The exponential of the gradient term
+   * @param[in] diff_term_low_trunc The low trunction of the difference term
+   * @param[in] diff_term_high_trunc The high trunction of the difference term
+   * @param[in] tol The tolerance in pixels for simplifying the seamline, default is 2.0. 
+   * @return The output graph cut mosaicking shared pointer
+  */
+  static std::shared_ptr<GraphCut> Create(
       double grad_term_exp,
       double diff_term_low_trunc,
-      double diff_term_high_trunc);
+      double diff_term_high_trunc,
+      double tol = 2.0);
 };
 
-/**
- * @brief Raster information class for sort
-*/
+/** @brief Raster information class for sort */
 struct RS_TOOLSET_API RasterInfo {
   std::string path;
   double reso;
@@ -70,89 +72,89 @@ struct RS_TOOLSET_API RasterInfo {
 
 /**
  * @brief Sort two RasterInfo members by resolution
- * @param info1: The first RasterInfo member
- * @param info2: The second RasterInfo member
+ * @param[in] info1 The first RasterInfo member
+ * @param[in] info2 The second RasterInfo member
  * @return Sort result
 */
 bool RS_TOOLSET_API SortByReso(
     const RasterInfo& info1,
     const RasterInfo& info2);
 
-/**
- * @brief Abstract mosaicking container class
-*/
+/** @brief Abstract mosaicking container class */
 class RS_TOOLSET_API MosaickingContainerInterface {
  public:
   typedef std::function<bool(const RasterInfo&, const RasterInfo&)> SortFunc;
 
   /**
-   * @brief Sort the given rasters' path with the sort function
-   * @param rasters_path: The given rasters' path
-   * @param sort_func: The sort function, default is by resolution
+   * @brief Sort rasters by the given sort function
+   * @param[in,out] rasters_path The rasters' path
+   * @param[in] sort_func The given sort function, default is by resolution
   */
   virtual void SortRasters(
       std::vector<std::string>& rasters_path,
       const SortFunc& sort_func = rs_toolset::mosaicking::SortByReso) = 0;
 
   /**
-   * @brief Add the given raster path task to execute mosaicking
-   * @param raster_path: The given raster path
-   * @param use_seamline: Whether uses the seamline
+   * @brief Add a raster task to execute the mosaicking algorithm
+   * @param[in] raster_path The raster path
+   * @param[in] last_overview_idx The last overview index, default is 3 and must be positive
+   * @param[in] use_seamline Whether uses the seamline
    * @return Running state
   */
   virtual bool AddTask(
       const std::string& raster_path,
+      int last_over_view_idx = 3,
       bool use_seamline = false) = 0;
 
   /**
-   * @brief Export the composite table vector in the mosaicking container to the given path
-   * @param composit_table_path: The given output composit table path
-   * @param unit: The unit value for scaling buffer and tolerance
-   * @param buffer: The buffer distance
-   * @param tol: The tolerance for simplification
+   * @brief Export the internal composite table to the given path
+   * @param[in] composit_table_path The exported composit table path
+   * @param[in] buffer The buffer distance, only a negative number accepted
+   * @param[in] tol The tolerance for simplifying the border
    * @return Running state
+   * @note The unit of "buffer" and "tol" arguments should be the same as the spatial reference's
   */
   virtual bool ExportCompositeTableVector(
       const std::string& composit_table_path,
-      double unit,
-      double buffer = -1.,
-      double tol = 1.5) = 0;
+      double buffer = 0.0,
+      double tol = 0.0) = 0;
 
   /**
-   * @brief Export all rasters' name in the composite table vector
+   * @brief Export all rasters' name in the internal composite table
    * @return The output rasters' name
   */
   virtual std::vector<std::string> ExportAllRastersName() = 0;
 
   /**
-   * @brief Create the mosaicking raster from the given composit table
-   * @param mosaicking_raster_path: The otuput mosaicking raster path
-   * @param composit_table_path: The given composit table path, use the internal composit table if empty
-   * @param rasters_dir: The raster directory corresponding to the composit table
-   * @param reso: The output mosaicking raster resolution
+   * @brief Create a mosaicking raster from the internal or the external composit table
+   * @param[in] mosaicking_raster_path The output mosaicking raster path
+   * @param[in] composit_table_path The external composit table path, use the internal composit table if empty
+   * @param[in] rasters_dir The rasters' directory corresponding to the external composit table
+   * @param[in] reso The output mosaicking raster resolution
+   * @param[in] blend_dist The blend distance, default is 0.0
    * @return Running state
+   * note The blend operation costs much more time than directly warp
   */
   virtual bool CreateMosaickingRaster(
       const std::string& mosaicking_raster_path,
       const std::string& composit_table_path,
       const std::string& rasters_dir,
-      double reso) = 0;
+      double reso,
+      double blend_dist = 0.0) = 0;
 
-  // TODO: virtual bool ExportStatusToJson() = 0;
+  /** @todo virtual bool ExportStatusToJson() = 0; */
 
-  // TODO: virtual bool ImportStatusFromStatus() = 0;
+  /** @todo virtual bool ImportStatusFromStatus() = 0; */
 };
 
-/**
- * @brief Mosaicking container class
-*/
-class RS_TOOLSET_API MosaickingContainer 
+/** @brief Mosaicking container class */
+class RS_TOOLSET_API MosaickingContainer
     : virtual public MosaickingContainerInterface {
  public:
   /**
-   * @brief Create the mosaicking container shared pointer
-   * @param mosaicking: The mosaicking
-   * @param spatial_ref: The spatial reference, which needs to SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER)
+   * @brief Create a mosaicking container shared pointer
+   * @param mosaicking[in] The mosaicking shared pointer
+   * @param spatial_ref[in] The spatial reference, which needs to SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER)
    * @return The output mosaicking container shared pointer
   */
   static std::shared_ptr<MosaickingContainer> Create(
@@ -160,10 +162,10 @@ class RS_TOOLSET_API MosaickingContainer
       OGRSpatialReference* spatial_ref);
 
   /**
-   * @brief Create the mosaicking container shared pointer with the given composite tabel
-   * @param mosaicking: The mosaicking
-   * @param composite_tabel_path: The given composite tabel path
-   * @param rasters_dir: The raster directory corresponding to the composit table
+   * @brief Create a mosaicking container shared pointer by the external composite tabel
+   * @param mosaicking[in] The mosaicking shared pointer
+   * @param composite_tabel_path[in] The external composite tabel path
+   * @param rasters_dir[in] The rasters' directory corresponding to the external composit table
    * @return The output mosaicking container shared pointer
   */
   static std::shared_ptr<MosaickingContainer> Create(
@@ -176,4 +178,3 @@ class RS_TOOLSET_API MosaickingContainer
 } // rs_toolset
 
 #endif // RS_TOOLSET_INCLUDE_RS_TOOLSET_MOSAICKING_H_
-

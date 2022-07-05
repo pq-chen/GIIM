@@ -22,18 +22,19 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
       double high_percent) 
       : low_percent_(low_percent), high_percent_(high_percent) {
     spdlog::info(
-        "Creating the percent clip stretch with\n"
-        "- Low percent: {}\n"
-        "- High percent: {}", low_percent_, high_percent_);
+        "Creating a percent clip stretch with\n"
+        " - Low percent: {}\n"
+        " - High percent: {}", low_percent_, high_percent_);
   }
   PercentClipImpl(const PercentClipImpl&) = delete;
   PercentClipImpl& operator=(const PercentClipImpl&) = delete;
   ~PercentClipImpl() = default;
 
-  bool AddSingleBlock(
+  bool AddStatForSingleBlock(
       const cv::Mat& mat,
       int band) override;
-  bool AddMultiBlock(const cv::Mat& mat) override;
+  bool AddStatForMultiBlock(const cv::Mat& mat) override;
+
   void SetPercent(double low_percent, double high_percent) override {
     low_percent_ = low_percent;
     high_percent_ = high_percent;
@@ -43,8 +44,10 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
     high_percent = high_percent_;
   }
 
+  void ClearStat() { hist_mats_.resize(0); }
+
  protected:
-  void CreateThresholds(
+  void CreateThres(
       std::vector<int>& low_thres,
       std::vector<int>& high_thres) override;
 

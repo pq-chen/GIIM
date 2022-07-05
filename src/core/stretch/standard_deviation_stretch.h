@@ -20,21 +20,28 @@ class StandardDeviationImpl final
  public:
   StandardDeviationImpl(double scale) : scale_(scale) {
     spdlog::info(
-        "Creating the standard deviation stretch with\n- Scale: {}", scale);
+        "Creating a standard deviation stretch with\n - Scale: {}", scale);
   }
   StandardDeviationImpl(const StandardDeviationImpl&) = delete;
   StandardDeviationImpl& operator=(const StandardDeviationImpl&) = delete;
   ~StandardDeviationImpl() = default;
 
-  bool AddSingleBlock(
+  bool AddStatForSingleBlock(
       const cv::Mat& mat,
       int band) override;
-  bool AddMultiBlock(const cv::Mat& mat) override;
+  bool AddStatForMultiBlock(const cv::Mat& mat) override;
+
   void SetScale(double scale) override { scale_ = scale; }
   void GetScale(double& scale) override { scale = scale_; }
 
+  void ClearStat() {
+    pixels_counts_.resize(0);
+    sums_.resize(0);
+    square_sums_.resize(0);
+  }
+
  protected:
-  void CreateThresholds(
+  void CreateThres(
       std::vector<int>& low_thres,
       std::vector<int>& high_thres) override;
 

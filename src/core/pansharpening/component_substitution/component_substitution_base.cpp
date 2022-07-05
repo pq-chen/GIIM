@@ -23,14 +23,15 @@ bool ComponentSubstitutionBase::Run(
     bool use_rpc,
     bool use_stretch,
     const std::vector<int>& pansharpened_bands_map) {
-  std::string fmt(
-      "Running the pansharpening task from\n- PAN path: {}\n- MS path: {}\n"
-      "- Pansharpened_path: {}\n- Use RPC: {}\n- Use stretch: {}\n"
-      "- Pansharpened bands' map: ");
+  std::string string(
+      "Running a pansharpening task from\n - PAN path: {}\n - MS path: {}\n"
+      " - Pansharpened path: {}\n - Use RPC: {}\n - Use stretch: {}\n"
+      " - Pansharpened bands' map: ");
   for (const auto& idx : pansharpened_bands_map)
-    fmt.append(std::to_string(idx)).append(",");
-  fmt.pop_back();
-  spdlog::info(fmt, pan_path, ms_path, pansharpened_path, use_rpc, use_stretch);
+    string.append(std::to_string(idx)).append(",");
+  string.pop_back();
+  spdlog::info(
+      string, pan_path, ms_path, pansharpened_path, use_rpc, use_stretch);
   GDALDatasetUniquePtr 
       pan_dataset(GDALDataset::Open(
           pan_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)),
@@ -49,12 +50,13 @@ bool ComponentSubstitutionBase::Run(
   if (pan_dataset_type != ms_dataset_type) return false;
   if (pan_dataset_type != GDT_Byte && pan_dataset_type != GDT_UInt16) {
     spdlog::warn(
-        "The PAN image's data type must be unsigned 8-bit or unsigned 16-bit");
+        "The PAN raster's data type must be unsigned 8-bit or "
+        "unsigned 16-bit");
     return false;
   }
   if (ms_dataset_type != pan_dataset_type) {
     spdlog::warn(
-        "The MS image's data type must be the same as the PAN image's");
+        "The MS raster's data type must be the same as the PAN raster's");
     return false;
   }
 
@@ -76,19 +78,20 @@ bool ComponentSubstitutionBase::Run(
   if (use_rpc) {
     spdlog::info(
         "Using the RPC information to create the mapping relation "
-        "between the PAN and the MS image before orthorectification");
+        "between the PAN raster and the MS raster before orthorectification");
     pan_trans_arg = utils::CreateRPCTrans(pan_path, true),
     ms_trans_arg = utils::CreateRPCTrans(ms_path, false);
   } else {
     spdlog::info(
         "Using the geotransform to create the mapping relation "
-        "between the PAN and the MS image after orthorectification");
+        "between the PAN raster and the MS raster after orthorectification");
   }
   void* s(CreateStatistic(bands_count, ms_x_size, ms_y_size));
 
   // Update the downsample information
   if (need_downsample_info_) {
-    spdlog::info("Updating the downsample information in the statistic struct");
+    spdlog::info(
+        "Updating the downsample information in the statistic struct");
     int ms_block_cols_count(static_cast<int>(ceil(static_cast<double>(
             ms_x_size) / block_size_))),
         ms_block_rows_count(static_cast<int>(ceil(static_cast<double>(
@@ -105,8 +108,8 @@ bool ComponentSubstitutionBase::Run(
       _ms_trans_arg = utils::CreateRPCTrans(ms_path, true);
     }
     spdlog::info(
-        "Dividing the {}x{} size MS image into {} {}x{} blocks",
-        ms_x_size, ms_y_size, ms_block_cols_count * ms_block_rows_count, 
+        "Dividing the {}x{} size MS raster into {} {}x{} blocks",
+        ms_x_size, ms_y_size, ms_block_cols_count * ms_block_rows_count,
         block_size_, block_size_);
     for (int i = 0; i < ms_block_cols_count * ms_block_rows_count; i++) {
       Data data;
@@ -115,8 +118,9 @@ bool ComponentSubstitutionBase::Run(
         int pan_range[4];
         CreateRangesForRPC(
             i, ms_block_cols_count, ms_block_rows_count, block_size_,
-            block_size_, last_ms_block_x_size, last_ms_block_y_size, pan_x_size,
-            pan_y_size, _ms_trans_arg, _pan_trans_arg, ms_range, pan_range);
+            block_size_, last_ms_block_x_size, last_ms_block_y_size,
+            pan_x_size, pan_y_size, _ms_trans_arg, _pan_trans_arg, ms_range,
+            pan_range);
         data = CreateDownsampledDataWithRPC(
             pan_path, ms_path, pan_range, ms_range, _pan_trans_arg, 
             _ms_trans_arg);
@@ -128,7 +132,7 @@ bool ComponentSubstitutionBase::Run(
       }
       UpdateDownsampleInfo(data, s);
       spdlog::info(
-          "---------- {}/{} - done ----------", i + 1, 
+          "---------- {}/{} - done ----------", i + 1,
           ms_block_cols_count * ms_block_rows_count);
     }
     spdlog::info(
@@ -139,8 +143,8 @@ bool ComponentSubstitutionBase::Run(
   // Update the upsample information
   spdlog::info("Updating the statistic struct with the upsample information");
   spdlog::info(
-      "Dividing the {}x{} PAN image into {} {}x{} blocks",
-      pan_x_size, pan_y_size, pan_block_cols_count * pan_block_rows_count, 
+      "Dividing the {}x{} PAN raster into {} {}x{} blocks",
+      pan_x_size, pan_y_size, pan_block_cols_count * pan_block_rows_count,
       block_size_, block_size_);
   for (int i = 0; i < pan_block_cols_count * pan_block_rows_count; i++) {
     Data data;
@@ -156,7 +160,8 @@ bool ComponentSubstitutionBase::Run(
     } else {
       utils::CreateRange(
           i, pan_block_cols_count, pan_block_rows_count, block_size_,
-          block_size_, last_pan_block_x_size, last_pan_block_y_size, pan_range);
+          block_size_, last_pan_block_x_size, last_pan_block_y_size,
+          pan_range);
       data = CreateUpsampledDataWithGeotrans(pan_path, ms_path, pan_range);
     }
     UpdateUpsampleInfo(data, weights, s);
@@ -169,17 +174,17 @@ bool ComponentSubstitutionBase::Run(
   std::vector<double> injection_gains(CreateInjectionGains(s));
 
   // Create pansharpened mats
-  spdlog::info("Creating the pansharpened image");
+  spdlog::info("Creating pansharpened mats");
   std::vector<cv::Mat> pansharpened_mats(bands_count);
   for (auto& pansharpened_mat : pansharpened_mats)
     pansharpened_mat = cv::Mat(pan_y_size, pan_x_size, CV_16UC1);
   std::shared_ptr<stretch::PercentClip> stretch(nullptr);
   if (use_stretch) {
-    spdlog::info("Stretching on the pansharpened image");
-    stretch = stretch::PercentClip::Create(0.0025, 0.0025);
+    spdlog::info("Stretching on the pansharpened mats");
+    stretch = stretch::PercentClip::Create();
   }
   spdlog::info(
-      "Dividing {}x{} pansharpened image into {} {}x{} blocks",
+      "Dividing {}x{} pansharpened raster into {} {}x{} blocks",
       pan_x_size, pan_y_size, pan_block_cols_count* pan_block_rows_count,
       block_size_, block_size_);
   for (int i = 0; i < pan_block_cols_count * pan_block_rows_count; i++) {
@@ -196,7 +201,8 @@ bool ComponentSubstitutionBase::Run(
     } else {
       utils::CreateRange(
           i, pan_block_cols_count, pan_block_rows_count, block_size_,
-          block_size_, last_pan_block_x_size, last_pan_block_y_size, pan_range);
+          block_size_, last_pan_block_x_size, last_pan_block_y_size,
+          pan_range);
       data = CreateUpsampledDataWithGeotrans(pan_path, ms_path, pan_range);
     }
     std::vector<cv::Mat> delta_mats(CreateDeltaMats(data, weights, s));
@@ -206,13 +212,13 @@ bool ComponentSubstitutionBase::Run(
       data.mats[b].copyTo(pansharpened_mats[b](rect));
       pansharpened_mats[b](rect) += injection_gains[b] * delta_mats[b];
       if (use_stretch)
-        stretch->AddSingleBlock(pansharpened_mats[b](rect), b);
+        stretch->AddStatForSingleBlock(pansharpened_mats[b](rect), b);
     }
     spdlog::info(
         "---------- {}/{} - done ----------", i + 1,
         pan_block_cols_count * pan_block_rows_count);
   }
-  spdlog::info("Creating the pansharpened image - done");
+  spdlog::info("Creating pansharpened mats - done");
   DestroyStatistic(s);
 
   // Write the pansharpened mats into the given path
@@ -220,10 +226,11 @@ bool ComponentSubstitutionBase::Run(
   int pansharpened_bytes_count(bytes_count);
   if (use_stretch) {
     stretch->Run(pansharpened_mats);
+    stretch->ClearStat();
     pansharpened_dataset_type = GDT_Byte;
     pansharpened_bytes_count = 1;
   }
-  spdlog::debug("Writing the pansharpened image into {}", pansharpened_path);
+  spdlog::debug("Writing the pansharpened mats into {}", pansharpened_path);
   int output_bands_count(static_cast<int>(pansharpened_bands_map.size()));
   if (!output_bands_count)
     output_bands_count = bands_count;
@@ -251,7 +258,7 @@ bool ComponentSubstitutionBase::Run(
   }
   spdlog::info(
       "Writing the pansharpened mats into {} - done", pansharpened_path);
-  spdlog::info("Running the pansharpening task - done");
+  spdlog::info("Running a pansharpening task - done");
   return true;
 }
 

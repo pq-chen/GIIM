@@ -20,7 +20,7 @@ class ComponentSubstitutionBase : public PansharpeningBase {
       : need_downsample_info_(need_downsample_info),
         PansharpeningBase(block_size) {}
   ComponentSubstitutionBase(const ComponentSubstitutionBase&) = delete;
-  ComponentSubstitutionBase& operator=(const ComponentSubstitutionBase&) = 
+  ComponentSubstitutionBase& operator=(const ComponentSubstitutionBase&) =
       delete;
   ~ComponentSubstitutionBase() override = default;
 
@@ -33,68 +33,68 @@ class ComponentSubstitutionBase : public PansharpeningBase {
       const std::vector<int>& pansharpened_bands_map) override;
 
  protected:
-  /// <summary>
-  /// Create the statistic struct
-  /// </summary>
-  /// <param name="bands_count">The bands' count</param>
-  /// <param name="x_size">x size(any kind)</param>
-  /// <param name="y_size">y size(any kind)</param>
-  /// <returns>The output statistic struct</returns>
+  /**
+   * @brief Create a statistic struct
+   * @param[in] bands_count The bands' count
+   * @param[in] x_size x size(any kind)
+   * @param[in] y_size y size(any kind)
+   * @return The output statistic struct
+  */
   virtual void* CreateStatistic(
       int bands_count,
       int x_size,
       int y_size) = 0;
 
-  /// <summary>
-  /// Update the downsample information in the statistic struct with the given downsampled data if needed
-  /// </summary>
-  /// <param name="data">The given downsampled data</param>
-  /// <param name="s">The statistic struct</param>
+  /**
+   * @brief Update the downsample information in the statistic struct with the given downsampled data if needed
+   * @param[in] data The given downsampled data
+   * @param[in,out] s The statistic struct
+  */
   virtual void UpdateDownsampleInfo(
       const Data& data,
       void* s) {}
 
-  /// <summary>
-  /// Create weights with the statistic struct for building the synthetic low resolution PAN mat
-  /// </summary>
-  /// <param name="s">The statistic struct</param>
-  /// <returns>The output weights</returns>
+  /**
+   * @brief Create weights with the statistic struct for building the synthetic low resolution PAN mat
+   * @param[in] s The statistic struct
+   * @return The output weights
+  */
   virtual std::vector<double> CreateWeights(void* s) = 0;
 
-  /// <summary>
-  /// Update the upsample information in the statistic struct with the given upsampled data and weights
-  /// </summary>
-  /// <param name="data">Weights</param>
-  /// <param name="weights">The given upsampled data</param>
-  /// <param name="s">The statistic struct</param>
+  /**
+   * @brief Update the upsample information in the statistic struct with the given upsampled data and weights
+   * @param data[in] Weights
+   * @param weights[in] The given upsampled data
+   * @param s[in,out] The statistic struct
+  */
   virtual void UpdateUpsampleInfo(
       const Data& data,
       const std::vector<double>& weights,
       void* s) = 0;
 
-  /// <summary>
-  /// Create injection gains with the statistic struct for building the pansharpened mat
-  /// </summary>
-  /// <param name="s">The statistic struct</param>
-  /// <returns>The output injection gains</returns>
+  /**
+   * @brief Create injection gains with the statistic struct for building the pansharpened mat
+   * @param s[in] The statistic struct
+   * @return The output injection gains
+  */
   virtual std::vector<double> CreateInjectionGains(void* s) = 0;
 
-  /// <summary>
-  /// Create delta mats between the PAN mat and the synthetic low resolution PAN mat for all bands
-  /// </summary>
-  /// <param name="data">The given upsampled data</param>
-  /// <param name="weights">weights</param>
-  /// <param name="s">The statistic struct</param>
-  /// <returns>The output delta mats</returns>
+  /**
+   * @brief Create delta mats between the PAN mat and the synthetic low resolution PAN mat for all bands
+   * @param data[in] The given upsampled data
+   * @param weights[in] Weights
+   * @param s[in] The statistic struct
+   * @return The output delta mats
+  */
   virtual std::vector<cv::Mat> CreateDeltaMats(
       const Data& data,
       const std::vector<double>& weights,
       void* s) = 0;
 
-  /// <summary>
-  /// Destroy the statistic struct
-  /// </summary>
-  /// <param name="s">The statistic struct</param>
+  /**
+   * @brief Destroy the statistic struct
+   * @param[in] s The statistic struct
+  */
   virtual void DestroyStatistic(void* s) = 0;
 
  private:
