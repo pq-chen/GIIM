@@ -342,13 +342,13 @@ cv::Mat CreateMatFromDataset(
   int _range[4]{ 0, 0, dataset->GetRasterXSize() , dataset->GetRasterYSize() };
   if (!range)
     range = _range;
-  cv::Mat output_mat(range[3], range[2], mat_type);
+  cv::Mat mat(range[3], range[2], mat_type);
   dataset->RasterIO(
-      GF_Read, range[0], range[1], range[2], range[3], output_mat.data,
+      GF_Read, range[0], range[1], range[2], range[3], mat.data,
       range[2], range[3], dataset_type, bands_count, bands_map,
       bytes_count * dataset->GetRasterCount(), 
       bytes_count * dataset->GetRasterCount() * range[2], bytes_count);
-  return output_mat;
+  return mat;
 }
 
 void CreateRasterPyra(

@@ -22,20 +22,26 @@ namespace mosaicking {
 class GraphCutImpl final : public MosaickingBase, public GraphCut {
  public:
   GraphCutImpl(
-      double grad_term_exp,
-      double diff_term_low_trunc,
-      double diff_term_high_trunc,
+      float grad_self_low,
+      float grad_self_high,
+      float grad_self_exp,
+      float diff_low,
+      float diff_exp,
       double tol)
       : MosaickingBase(tol),
-        grad_term_exp_(grad_term_exp),
-        diff_term_low_trunc_(diff_term_low_trunc),
-        diff_term_high_trunc_(diff_term_high_trunc) {
+        grad_self_low_(grad_self_low),
+        grad_self_high_(grad_self_high),
+        grad_self_exp_(grad_self_exp),
+        diff_low_(diff_low),
+        diff_exp_(diff_exp) {
     spdlog::info(
         "Creating the graph cut mosaicking with\n"
-        " - Gradient term exponential: {}\n"
+        " - Gradient-self term low trunction: {}\n"
+        " - Gradient-self term low trunction: {}\n"
+        " - Gradient-self term exponential: {}\n"
         " - Difference term low trunction: {}\n"
-        " - Difference term high trunction: {}",
-        grad_term_exp, diff_term_low_trunc, diff_term_high_trunc);
+        " - Difference term exponential: {}",
+        grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp);
   }
   GraphCutImpl(const GraphCutImpl&) = delete;
   GraphCutImpl& operator=(const GraphCutImpl&) = delete;
@@ -46,17 +52,19 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
     int idx;
     uint16_t label;
   };
-  struct SmoothExtraData {
-    double grad_exp;
-    double min_diff;
-    double max_diff;
+  struct Data {
+    float grad_self_low;
+    float grad_self_high;
+    float grad_self_exp;
+    float diff_low;
+    float diff_exp;
     cv::Mat covered_mat;
     cv::Mat covered_x_mat;
     cv::Mat covered_y_mat;
     cv::Mat new_mat;
     cv::Mat new_x_mat;
     cv::Mat new_y_mat;
-    std::map<int, std::pair<int, int>> valid_idx_to_coors;
+    std::vector<std::pair<int, int>>* idxes_to_coors;
   };
 
   void PrepareData(
@@ -84,11 +92,13 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       int site2,
       int label1,
       int label2,
-      void* extra_data);
+      void* data);
 
-  double grad_term_exp_;
-  double diff_term_low_trunc_;
-  double diff_term_high_trunc_;
+  float grad_self_low_;
+  float grad_self_high_;
+  float grad_self_exp_;
+  float diff_low_;
+  float diff_exp_;
 };
 
 } // mosaicking

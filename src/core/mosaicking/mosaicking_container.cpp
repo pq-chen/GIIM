@@ -41,7 +41,7 @@ MosaickingContainerImpl::MosaickingContainerImpl(
   spdlog::info(
       "Creating a mosaicking container with\n - Spatial reference name: {}",
       spatial_ref->GetName());
-  GDALDriver* memory_driver(GetGDALDriverManager()->GetDriverByName("Memory"));
+  auto memory_driver(GetGDALDriverManager()->GetDriverByName("Memory"));
   composite_table_dataset_ = memory_driver->Create(
       "", 0, 0, 0, GDT_Unknown, nullptr);
   composite_table_layer_ = composite_table_dataset_->CreateLayer(
@@ -70,7 +70,7 @@ MosaickingContainerImpl::MosaickingContainerImpl(
     spdlog::debug("Creating an internal feature");
     OGRFeatureUniquePtr internal_feature(OGRFeature::CreateFeature(
         composite_table_layer_->GetLayerDefn()));
-    OGRGeometry* external_geometry(external_feature->GetGeometryRef());
+    auto external_geometry(external_feature->GetGeometryRef());
     internal_feature->SetField(0, path.string().c_str());
     internal_feature->SetGeometry(external_geometry);
     composite_table_layer_->CreateFeature(internal_feature.get());
@@ -78,18 +78,16 @@ MosaickingContainerImpl::MosaickingContainerImpl(
 
     // Update the covered border
     spdlog::debug("Updating the covered border");
+    auto covered_multi_polygon(covered_border_->toMultiPolygon());
     if (covered_border_->IsEmpty() ||
-        !external_geometry->Intersect(covered_border_)) {
-      covered_border_->toMultiPolygon()->addGeometryDirectly(
-          external_geometry->clone());
+        !external_geometry->Intersect(covered_multi_polygon)) {
+      covered_multi_polygon->addGeometryDirectly(external_geometry->clone());
     } else {
       OGRGeometryUniquePtr new_covered_polygon(external_geometry->clone());
-      OGRMultiPolygon* covered_multi_polygon(
-          covered_border_->toMultiPolygon());
       for (int i = covered_multi_polygon->getNumGeometries() - 1;
           i >= 0; i--) {
-        OGRGeometry* covered_polygon(covered_multi_polygon->getGeometryRef(i));
-        if (new_covered_polygon->Touches(covered_polygon)) {
+        auto covered_polygon(covered_multi_polygon->getGeometryRef(i));
+        if (new_covered_polygon->Intersect(covered_polygon)) {
           new_covered_polygon.reset(
               new_covered_polygon->Union(covered_polygon));
           covered_multi_polygon->removeGeometry(i);
@@ -169,7 +167,7 @@ bool MosaickingContainerImpl::ExportCompositeTableVector(
 
   // Create an external composite table dataset
   spdlog::debug("Creating an external composite table dataset");
-  GDALDriver* esri_shapefile_driver(
+  auto esri_shapefile_driver(
       GetGDALDriverManager()->GetDriverByName("ESRI Shapefile"));
   GDALDatasetUniquePtr composite_table_vector(esri_shapefile_driver->Create(
       composit_table_path.c_str(), 0, 0, 0, GDT_Unknown, nullptr));
@@ -179,7 +177,7 @@ bool MosaickingContainerImpl::ExportCompositeTableVector(
         composit_table_path);
     return false;
   }
-  OGRLayer* external_layer(composite_table_vector->CreateLayer(
+  auto external_layer(composite_table_vector->CreateLayer(
       "", composite_table_layer_->GetSpatialRef(), wkbPolygon));
   OGRFieldDefn name_field("name", OFTString);
   external_layer->CreateField(&name_field);
@@ -236,7 +234,7 @@ bool MosaickingContainerImpl::CreateMosaickingRaster(
   spdlog::debug(
       "Creating a mosaicking raster from {}",mosaicking_raster_path);
   GDALDatasetUniquePtr _composite_table_dataset(nullptr);
-  OGRLayer* _composite_table_layer;
+  OGRLayer* _composite_table_layer(nullptr);
   if (composit_table_path.empty()) {
     _composite_table_layer = composite_table_layer_;
     spdlog::info("Using the internal composite table");
@@ -259,7 +257,7 @@ bool MosaickingContainerImpl::CreateMosaickingRaster(
   auto x_size(static_cast<int>(ceil((enve.MaxX - enve.MinX) / reso))),
       y_size(static_cast<int>(ceil((enve.MaxY - enve.MinY) / reso)));
   double geotrans[6]{ enve.MinX , reso, 0.0, enve.MaxY, 0.0, -reso };
-  GDALDriver* gtiff_driver(GetGDALDriverManager()->GetDriverByName("GTiff"));
+  auto gtiff_driver(GetGDALDriverManager()->GetDriverByName("GTiff"));
   GDALDatasetUniquePtr mosaicking_raster_dataset(gtiff_driver->Create(
       mosaicking_raster_path.c_str(), x_size, y_size, 3, GDT_Byte, nullptr));
   if (!mosaicking_raster_dataset) {
@@ -330,7 +328,7 @@ std::shared_ptr<MosaickingContainer> MosaickingContainer::Create(
     spdlog::warn("Opening {} failed", composite_tabel_path);
     return nullptr;
   }
-  OGRLayer* composite_table_layer(composite_tabel_dataset->GetLayer(0));
+  auto composite_table_layer(composite_tabel_dataset->GetLayer(0));
   if (!composite_table_layer->GetSpatialRef()) {
     spdlog::warn("No spatial reference is specified for the seamline layer");
     return nullptr;

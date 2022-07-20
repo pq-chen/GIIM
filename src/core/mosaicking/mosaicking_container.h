@@ -38,7 +38,7 @@ class MosaickingContainerImpl final
 
   bool AddTask(
       const std::string& raster_path,
-      int last_over_view_idx,
+      int last_overview_idx,
       bool use_seamline) override;
 
   bool ExportCompositeTableVector(

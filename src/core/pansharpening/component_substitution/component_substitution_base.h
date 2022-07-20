@@ -93,7 +93,7 @@ class ComponentSubstitutionBase : public PansharpeningBase {
 
   /**
    * @brief Destroy the statistic struct
-   * @param[in] s The statistic struct
+   * @param[in,out] s The statistic struct
   */
   virtual void DestroyStatistic(void* s) = 0;
 

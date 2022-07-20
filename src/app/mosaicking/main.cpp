@@ -43,12 +43,16 @@ int main(int argc, char* argv[]) {
           cxxopts::value<int>()->default_value("3"))
       ("epsg", "The spatial reference epsg code of the output composite table",
           cxxopts::value<int>()->default_value("4326"))
-      ("grad-exp", "The gradient term exponential argument in the graph cut "
-          "algorithm", cxxopts::value<double>()->default_value("0.8"))
-      ("diff-low", "The difference term low trunction argument in the graph "
-          "cut algorithm", cxxopts::value<double>()->default_value("0.4"))
-      ("diff-high", "The difference term high trunction in the "
-          "graph cut algorithm", cxxopts::value<double>()->default_value("8"))
+      ("grad-self-low", "The low trunction of the gradient-self term",
+          cxxopts::value<float>()->default_value("1.4"))
+      ("grad-self-high", "The high trunction of the gradient-self term",
+          cxxopts::value<float>()->default_value("40.0"))
+      ("grad-self-exp", "The exponential of the gradient-self term", 
+          cxxopts::value<float>()->default_value("1.5"))
+      ("diff-low", "The low trunction of the difference term", 
+          cxxopts::value<float>()->default_value("20.0"))
+      ("diff-exp", "The exponential of the difference term",
+          cxxopts::value<float>()->default_value("0.7"))
       ("tol", "The tolerance for simplifyling the seamline",
           cxxopts::value<double>()->default_value("2.0"))
       ("log-level", "Available levels are trace(t), debug(d), info(i), "
@@ -106,10 +110,12 @@ int main(int argc, char* argv[]) {
     return 0;
   }
   auto epsg(result["epsg"].as<int>());
-  auto grad_term_exp(result["grad-exp"].as<double>()),
-      diff_term_low_trunc(result["diff-low"].as<double>()),
-      diff_term_high_trunc(result["diff-high"].as<double>()),
-      tol(result["tol"].as<double>());
+  auto grad_self_low(result["grad-self-low"].as<float>()),
+      grad_self_high(result["grad-self-high"].as<float>()),
+      grad_self_exp(result["grad-self-exp"].as<float>()),
+      diff_low(result["diff-low"].as<float>()),
+      diff_exp(result["diff-exp"].as<float>());
+  auto tol(result["tol"].as<double>());
   if (result.count("log-level")) {
     auto log_level(result["log-level"].as<std::string>());
     if (log_level == "t" || log_level == "trace") {
@@ -137,12 +143,14 @@ int main(int argc, char* argv[]) {
   if (input_composite_table_path.empty()) {
     mosaicking = mosaicking::MosaickingContainer::Create(
         mosaicking::GraphCut::Create(
-            grad_term_exp, diff_term_low_trunc, diff_term_high_trunc, tol),
+            grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp,
+            tol),
         spatial_ref.get());
   } else {
     mosaicking = mosaicking::MosaickingContainer::Create(
         mosaicking::GraphCut::Create(
-            grad_term_exp, diff_term_low_trunc, diff_term_high_trunc, tol),
+            grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp,
+            tol),
         result["input-composite-table"].as<std::string>(),
         result["input-rasters-dir"].as<std::string>());
   }

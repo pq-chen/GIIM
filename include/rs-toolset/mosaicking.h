@@ -50,16 +50,20 @@ class RS_TOOLSET_API GraphCut : virtual public MosaickingInterface {
  public:
   /**
    * @brief Create a graph cut mosaicking shared pointer
-   * @param[in] grad_term_exp The exponential of the gradient term
-   * @param[in] diff_term_low_trunc The low trunction of the difference term
-   * @param[in] diff_term_high_trunc The high trunction of the difference term
+   * @param[in] grad_self_low The low trunction of the gradient-self term
+   * @param[in] grad_self_high The high trunction of the gradient-self term
+   * @param[in] grad_self_exp The exponential of the gradient-self term
+   * @param[in] diff_low The low trunction of the difference term
+   * @param[in] diff_exp The exponential of the difference term
    * @param[in] tol The tolerance in pixels for simplifying the seamline, default is 2.0. 
    * @return The output graph cut mosaicking shared pointer
   */
   static std::shared_ptr<GraphCut> Create(
-      double grad_term_exp,
-      double diff_term_low_trunc,
-      double diff_term_high_trunc,
+      float grad_self_low,
+      float grad_self_high,
+      float grad_self_exp,
+      float diff_low,
+      float diff_exp,
       double tol = 2.0);
 };
 

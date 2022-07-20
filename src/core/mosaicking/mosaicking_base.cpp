@@ -28,7 +28,7 @@ MosaickingBase::MosaickingBase(double tol)
   buffers_per_unit_ = new int[8]{ 0, 10, 15, 20, 25, 30, 30, 30 };
   spdlog::info(
       "Creating a mosaicking base with\n"
-      " - Tolerance for simplifying the seamline : {}",  tol);
+      " - Tolerance for simplifying the seamline : {}", tol);
 }
 
 bool MosaickingBase::Run(
@@ -38,8 +38,7 @@ bool MosaickingBase::Run(
     int last_overview_idx,
     bool use_seamline) {
   spdlog::info(
-      "Running a mosaicking task from\n"
-      " - Raster path: {}\n"
+      "Running a mosaicking task from {}\n"
       " - Last overview index: {}\n"
       " - Use seamline: {}", raster_path, last_overview_idx, use_seamline);
   GDALDatasetUniquePtr source_raster_dataset(GDALDataset::Open(
@@ -76,8 +75,8 @@ bool MosaickingBase::Run(
   int ratio(4);
   OGRGeometryUniquePtr source_border(utils::CreateBorderGeometry(
       source_raster_dataset.get(), ratio));
-  source_border.reset(source_border->Buffer(geotrans[1] * ratio * -2));
   source_border.reset(source_border->Simplify(geotrans[1] * ratio * 1.5));
+  source_border.reset(source_border->Buffer(geotrans[1] * ratio * -2));
   source_border->transformTo(composite_table_layer->GetSpatialRef());
   OGRGeometryUniquePtr new_covered_polygon(source_border->clone());
   if (covered_border->IsEmpty() || !source_border->Intersect(covered_border)) {
@@ -90,13 +89,13 @@ bool MosaickingBase::Run(
         source_border->clone());
     spdlog::info("Updating the covered border - done");
   } else {
-    OGRMultiPolygon* covered_multi_polygon(covered_border->toMultiPolygon());
+    auto covered_multi_polygon(covered_border->toMultiPolygon());
 
     // Traverse all polygons in the covered border
     for (int i = covered_multi_polygon->getNumGeometries() - 1; i >= 0; i--) {
-      OGRGeometry* covered_polygon(covered_multi_polygon->getGeometryRef(i));
+      auto covered_polygon(covered_multi_polygon->getGeometryRef(i));
 
-      // Continue the loop for the no intersection situation 
+      // Continue the loop for the no intersection situation
       if (!source_border->Intersect(covered_polygon)) continue;
 
       // Exit for the covered situation 
@@ -132,10 +131,9 @@ bool MosaickingBase::Run(
             label_raster_dataset(nullptr);
         OGRGeometryUniquePtr
             valid_geometry(source_border->Intersection(covered_polygon)),
-            buffered_valid_geometry(valid_geometry->Buffer(
-                geotrans[1] * ratio)),
             covered_overlap_geometry(nullptr),
             new_overlap_geometry(nullptr);
+        valid_geometry.reset(valid_geometry->Buffer(geotrans[1] * ratio));
         int overviews_count(
             source_raster_dataset->GetRasterBand(1)->GetOverviewCount());
         for (int i = overviews_count - last_overview_idx; i >= 0; i--) {
@@ -177,7 +175,7 @@ bool MosaickingBase::Run(
               new_overlap_dataset, label_raster_dataset);
           UpdateMediums(
               i, covered_overlap_dataset.get(), new_overlap_dataset.get(),
-              buffered_valid_geometry.get(), label_raster_dataset,
+              valid_geometry.get(), label_raster_dataset,
               covered_overlap_geometry, new_overlap_geometry);
           spdlog::info(
               "Operating on the {} times downsampled overview - done",
@@ -255,7 +253,7 @@ void MosaickingBase::UpdateOverlapDatasets(
   union_geotrans[2] = 0;
   union_geotrans[4] = 0;
   union_geotrans[5] = downsample_factor * geotrans[5];
-  OGRSpatialReference* spatial_ref(composite_table_layer->GetSpatialRef());
+  auto spatial_ref(composite_table_layer->GetSpatialRef());
   spdlog::debug("Creating the union range and geotransform - done");
 
   // Update the covered overlap dataset
@@ -353,21 +351,24 @@ void MosaickingBase::UpdateMediums(
     // Create the seamline polygon and the buffered seamline polygon
     seamline_geometry.reset(seamline_geometry->Simplify(5 * geotrans[1]));
     seamline_geometry.reset(seamline_geometry->Buffer(
-        buffers_per_unit_[idx] * geotrans[1]));
+        (buffers_per_unit_[idx] - 2) * geotrans[1]));
     seamline_geometry.reset(seamline_geometry->Intersection(
         valid_geometry));
     OGRGeometryUniquePtr buffered_overlap_geometry(
-        seamline_geometry->Buffer(buffers_per_unit_[idx] * geotrans[1]));
+        seamline_geometry->Buffer((buffers_per_unit_[idx] - 2) * geotrans[1]));
 
     // Update overlap geometries
     covered_overlap_geometry.reset(
         covered_overlap_geometry->Union(seamline_geometry.get()));
     covered_overlap_geometry.reset(covered_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
+    covered_overlap_geometry.reset(
+        covered_overlap_geometry->Buffer(2 * geotrans[1]));
     new_overlap_geometry.reset(
         new_overlap_geometry->Union(seamline_geometry.get()));
     new_overlap_geometry.reset(new_overlap_geometry->Intersection(
         buffered_overlap_geometry.get()));
+    new_overlap_geometry.reset(new_overlap_geometry->Buffer(2 * geotrans[1]));
     spdlog::debug("Updating the overlap geometries - done");
   }
 }
@@ -376,7 +377,7 @@ void MosaickingBase::CreateSeamlineLineString(
     OGRGeometryUniquePtr& seamline_geometry,
     std::vector<std::pair<double, double>>& seamline_coors) {
   seamline_coors.resize(0);
-  nlohmann::json seamline_geometry_json(nlohmann::json::parse(
+  auto seamline_geometry_json(nlohmann::json::parse(
       seamline_geometry->exportToJson()));
   auto it(seamline_geometry_json.at("coordinates").begin());
   std::vector<std::pair<double, double>> coors{ *it->begin() };
@@ -402,8 +403,7 @@ void MosaickingBase::RearrangeLabelGeometries(
     const std::vector<std::pair<double, double>>& seamline_coors,
     OGRGeometryUniquePtr& label0_geometry,
     OGRGeometryUniquePtr& label1_geometry) {
-  nlohmann::json
-      label0_geometry_json(nlohmann::json::parse(
+  auto label0_geometry_json(nlohmann::json::parse(
           label0_geometry->exportToJson())),
       label1_geometry_json(nlohmann::json::parse(
           label1_geometry->exportToJson()));
@@ -481,8 +481,7 @@ void MosaickingBase::SimplifyLabelGeometries(
     OGRGeometryUniquePtr& label0_geometry,
     OGRGeometryUniquePtr& label1_geometry) {
   seamline_line_string.reset(seamline_line_string->Simplify(tol));
-  nlohmann::json
-      label0_geometry_json(nlohmann::json::parse(
+  auto label0_geometry_json(nlohmann::json::parse(
           label0_geometry->exportToJson())),
       label1_geometry_json(nlohmann::json::parse(
           label1_geometry->exportToJson())),
@@ -582,8 +581,8 @@ void MosaickingBase::UpdateResults(
   spdlog::debug("Updating the composite table");
   std::vector<std::pair<GIntBig, OGRGeometryUniquePtr>> dislocated_geometries;
   for (auto& feature : composite_table_layer) {
-    GIntBig id(feature->GetFID());
-    OGRGeometry* geometry(feature->GetGeometryRef());
+    auto id(feature->GetFID());
+    auto geometry(feature->GetGeometryRef());
     if (!covered_geometry->Intersect(geometry)) continue;
     diff_geometry.reset(geometry->Difference(source_border.get()));
     if (diff_geometry->getGeometryType() == wkbPolygon) {
