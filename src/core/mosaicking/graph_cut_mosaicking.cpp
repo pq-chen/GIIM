@@ -124,7 +124,7 @@ void GraphCutImpl::ExecuteMosaicking(
   cv::filter2D(new_mat, new_y_mat, CV_32F, y_kernel, cv::Point(1, 1));
   new_y_mat = cv::abs(new_y_mat);
   Data data{
-      grad_self_low_, grad_self_high_, grad_self_exp_, diff_low_, diff_exp_, 
+      grad_self_low_, grad_self_high_, grad_self_exp_, diff_low_, diff_exp_,
       covered_mat, covered_x_mat, covered_y_mat, new_mat, new_x_mat, new_y_mat,
       &idxes_to_coors };
   gc->setSmoothCost(SmoothCost, &data);
@@ -156,42 +156,39 @@ void GraphCutImpl::ExecuteMosaicking(
 
   // Find label geometries among polygonized features
   spdlog::debug("Finding label geometries among polygonized features");
-  std::pair<GIntBig, double> label0_max(-1, -1.0), label1_max(-1, -1.0);
-  for (const auto& polygonized_feature : polygonized_layer) {
-    auto id(polygonized_feature->GetFID());
-    switch (polygonized_feature->GetFieldAsInteger(0)) {
+  std::pair<int, double> label0_max(-1, -1.0), label1_max(-1, -1.0);
+  for (const auto& feature : polygonized_layer) {
+    double area(feature->GetGeometryRef()->toPolygon()->get_Area());
+    switch (feature->GetFieldAsInteger(0)) {
       case 100: {
-        double area(
-            polygonized_feature->GetGeometryRef()->toPolygon()->get_Area());
         if (area > label0_max.second)
-          label0_max = { id, area };
+          label0_max = { static_cast<int>(feature->GetFID()), area };
         break;
       }
       case 200: {
-        double area(
-            polygonized_feature->GetGeometryRef()->toPolygon()->get_Area());
         if (area > label1_max.second)
-          label1_max = { id, area };
+          label1_max = { static_cast<int>(feature->GetFID()), area };
       }
     }
   }
-  label0_geometry.reset(
-      polygonized_layer->GetFeature(label0_max.first)->GetGeometryRef()
-      ->Boundary());
-  label1_geometry.reset(
-      polygonized_layer->GetFeature(label1_max.first)->GetGeometryRef()
-      ->Boundary());
-  spdlog::debug("Finding label geometries among polygonized features - done");
-
-  // Eliminate internal holes in the label geometries
-  spdlog::debug("Eliminating internal holes in the label geometries");
+  label0_geometry.reset(polygonized_layer->GetFeature(label0_max.first)
+      ->GetGeometryRef()->Boundary());
   if (label0_geometry->getGeometryType() == wkbMultiLineString)
     label0_geometry.reset(
         label0_geometry->toMultiLineString()->getGeometryRef(0)->clone());
+  OGRGeometryUniquePtr label0_polygon(
+      OGRGeometryFactory::forceToPolygon(label0_geometry->clone()));
+  label1_geometry.reset(label0_polygon->Union(
+      polygonized_layer->GetFeature(label1_max.first)->GetGeometryRef()));
+  label1_geometry.reset(label1_geometry->Boundary());
   if (label1_geometry->getGeometryType() == wkbMultiLineString)
     label1_geometry.reset(
         label1_geometry->toMultiLineString()->getGeometryRef(0)->clone());
-  spdlog::debug("Eliminating internal holes in the label geometries - done");
+  label1_geometry.reset(
+      OGRGeometryFactory::forceToPolygon(label1_geometry.release()));
+  label1_geometry.reset(label1_geometry->Difference(label0_polygon.get()));
+  label1_geometry.reset(label1_geometry->Boundary());
+  spdlog::debug("Finding label geometries among polygonized features - done");
   spdlog::debug("Execute the graph cut mosaicking algorithm - done");
 }
 
@@ -225,8 +222,7 @@ int GraphCutImpl::SmoothCost(
     data_value1 = _data->new_mat.at<float>(row1, col1);
     data_value2 = _data->covered_mat.at<float>(row2, col2);
   }
-  float data_diff_term(
-      std::fmax(std::fabs(data_value1 - data_value2), _data->diff_low));
+  float data_diff_term(fmax(fabs(data_value1 - data_value2), _data->diff_low));
   int min_row(std::min(row1, row2)), min_col(std::min(col1, col2));
   cv::Rect rect(
       min_col - 1, min_row - 1, 3 + (row1 == row2), 3 + (row1 != row2));
@@ -246,15 +242,15 @@ int GraphCutImpl::SmoothCost(
     }
   float
       grad_self_term(
-          b ? std::pow(std::fmin(std::fmax(std::fmax(grad_value1, grad_value2),
+          b ? pow(fmin(fmax(fmax(grad_value1, grad_value2),
               _data->grad_self_low), _data->grad_self_high), 
               _data->grad_self_exp) : 200),
       grad_diff_term(
-          b ? std::fmax(std::fabs(grad_value1 - grad_value2) / 2.8f,
-              _data->diff_low) : 200);
+          b ? fmax(fabs(grad_value1 - grad_value2) / 2.8f, _data->diff_low)
+          : 200);
   return static_cast<int>(round(
-      100 * grad_self_term * 
-      std::pow(data_diff_term + grad_diff_term, _data->diff_exp)));
+      100 * grad_self_term *
+      pow(data_diff_term + grad_diff_term, _data->diff_exp)));
 }
 
 std::shared_ptr<GraphCut> GraphCut::Create(

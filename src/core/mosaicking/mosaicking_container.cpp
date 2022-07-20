@@ -48,17 +48,19 @@ MosaickingContainerImpl::MosaickingContainerImpl(
       "", spatial_ref, wkbPolygon);
   OGRFieldDefn path_field("path", OFTString);
   composite_table_layer_->CreateField(&path_field);
+  border_dataset_ = memory_driver->Create("", 0, 0, 0, GDT_Unknown, nullptr);
+  border_layer_ = border_dataset_->CreateLayer("", spatial_ref, wkbPolygon);
 }
 
 MosaickingContainerImpl::MosaickingContainerImpl(
     std::shared_ptr<MosaickingInterface> mosaicking,
-    OGRLayer* composite_table_layer,
+    OGRLayer* external_composite_table_layer,
     const std::string& rasters_dir)
     : MosaickingContainerImpl(
-          mosaicking, composite_table_layer->GetSpatialRef()) {
+          mosaicking, external_composite_table_layer->GetSpatialRef()) {
   spdlog::info(
       "Initializing the mosaicking container by the external composite table");
-  for (const auto& external_feature : composite_table_layer) {
+  for (const auto& external_feature : external_composite_table_layer) {
     auto path(fs::path(rasters_dir) / external_feature->GetFieldAsString(0));
     if (!std::filesystem::exists(path)) {
       spdlog::warn("{} does not exist", path.string());
@@ -75,6 +77,24 @@ MosaickingContainerImpl::MosaickingContainerImpl(
     internal_feature->SetGeometry(external_geometry);
     composite_table_layer_->CreateFeature(internal_feature.get());
     spdlog::debug("Creating an internal feature - done");
+
+    // Update the border layer
+    spdlog::debug("Updating the border layer");
+    int ratio(4);
+    GDALDatasetUniquePtr dataset(GDALDataset::Open(
+        path.string().c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
+    double geotrans[6];
+    dataset->GetGeoTransform(geotrans);
+    OGRGeometryUniquePtr border(utils::CreateBorderGeometry(
+        dataset.get(), ratio));
+    border.reset(border->Simplify(geotrans[1] * ratio * 1.5));
+    border.reset(border->Buffer(geotrans[1] * ratio * -2));
+    border->transformTo(composite_table_layer_->GetSpatialRef());
+    OGRFeatureUniquePtr border_feature(OGRFeature::CreateFeature(
+        border_layer_->GetLayerDefn()));
+    border_feature->SetGeometryDirectly(border.release());
+    border_layer_->CreateFeature(border_feature.get());
+    spdlog::debug("Updating the border layer - done");
 
     // Update the covered border
     spdlog::debug("Updating the covered border");
@@ -108,6 +128,7 @@ MosaickingContainerImpl::MosaickingContainerImpl(
 MosaickingContainerImpl::~MosaickingContainerImpl() {
   OGRGeometryFactory::destroyGeometry(covered_border_);
   GDALClose(composite_table_dataset_);
+  GDALClose(border_dataset_);
 }
 
 void MosaickingContainerImpl::SortRasters(
@@ -146,16 +167,25 @@ bool MosaickingContainerImpl::AddTask(
     int last_over_view_idx,
     bool use_seamline) {
   return mosaicking_->Run(
-      raster_path, composite_table_layer_, covered_border_, last_over_view_idx,
-      use_seamline);
+      raster_path, composite_table_layer_, border_layer_, covered_border_,
+      last_over_view_idx, use_seamline);
 }
 
 bool MosaickingContainerImpl::ExportCompositeTableVector(
     const std::string& composit_table_path,
     double buffer,
-    double tol) {
+    double tol,
+    const std::string& query_path,
+    const std::string& query_rasters_name_field_name,
+    bool with_extension) {
   spdlog::debug(
       "Export the internal composite table to {}", composit_table_path);
+  if (fs::path(composit_table_path).extension().string() != ".shp") {
+    spdlog::warn(
+        "The composite table path {} does not end with \".shp\"",
+        composit_table_path);
+    return false;
+  }
   if (buffer > 0) {
     spdlog::warn("Buffer: {} is not accepted as a positive number");
     return false;
@@ -163,6 +193,25 @@ bool MosaickingContainerImpl::ExportCompositeTableVector(
   if (covered_border_->IsEmpty()) {
     spdlog::warn("No mosaicking information need to be exported");
     return false;
+  }
+  GDALDatasetUniquePtr query_dataset(nullptr);
+  OGRLayer* query_layer(nullptr);
+  if (!query_path.empty()) {
+    query_dataset.reset(GDALDataset::Open(
+        query_path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY));
+    if (!query_dataset) {
+      spdlog::warn("Opening query composite table {} failed", query_path);
+    }else{
+      if (query_dataset->GetLayer(0)->FindFieldIndex(
+              query_rasters_name_field_name.c_str(), true) == -1) {
+        spdlog::warn(
+            "The query compostite table doesn't contain the \"{}\" field name",
+            query_rasters_name_field_name);
+      } else {
+        spdlog::info("Using the query composite table from {}", query_path);
+        query_layer = query_dataset->GetLayer(0);
+      }
+    }
   }
 
   // Create an external composite table dataset
@@ -179,33 +228,75 @@ bool MosaickingContainerImpl::ExportCompositeTableVector(
   }
   auto external_layer(composite_table_vector->CreateLayer(
       "", composite_table_layer_->GetSpatialRef(), wkbPolygon));
-  OGRFieldDefn name_field("name", OFTString);
-  external_layer->CreateField(&name_field);
   spdlog::debug("Creating an external composite table - done");
 
   // Create the buffered or simplified covered border if needed
   OGRGeometryUniquePtr _covered_border(covered_border_->clone());
-  if (buffer)
-    _covered_border.reset(_covered_border->Buffer(buffer));
   if (tol)
     _covered_border.reset(_covered_border->Simplify(tol));
+  if (buffer)
+    _covered_border.reset(_covered_border->Buffer(buffer));
 
-  // Create an external feature
-  spdlog::debug("Creating an external feature");
-  for (const auto& internal_feature : composite_table_layer_) {
-    OGRFeatureUniquePtr external_feature(OGRFeature::CreateFeature(
-        external_layer->GetLayerDefn()));
-    fs::path path(internal_feature->GetFieldAsString(0));
-    external_feature->SetField(0, path.filename().string().c_str());
-    if (buffer || tol) {
-      external_feature->SetGeometryDirectly(_covered_border->Intersection(
-          internal_feature->GetGeometryRef()));
-    } else {
-      external_feature->SetGeometry(internal_feature->GetGeometryRef());
+  if (query_layer) {
+    // create external fields from the query composite table
+    for (int i = 0; i < query_layer->GetLayerDefn()->GetFieldCount(); i++)
+      external_layer->CreateField(
+          query_layer->GetLayerDefn()->GetFieldDefn(i));
+    std::map<std::string, int> query_rasters_name_to_idxes;
+    for (int i = 0; i < query_layer->GetFeatureCount(); i++)
+      query_rasters_name_to_idxes[query_layer->GetFeature(i)->
+          GetFieldAsString(query_rasters_name_field_name.c_str())] = i;
+
+    // Create external features
+    spdlog::debug("Creating external features");
+    for (const auto& internal_feature : composite_table_layer_) {
+      OGRFeatureUniquePtr external_feature(OGRFeature::CreateFeature(
+          external_layer->GetLayerDefn()));
+      fs::path path(internal_feature->GetFieldAsString(0));
+      auto it(query_rasters_name_to_idxes.find(path.filename().string()));
+      if (it != query_rasters_name_to_idxes.end())
+        for (int i = 0; i < query_layer->GetLayerDefn()->GetFieldCount(); i++)
+          external_feature->SetField(
+              i, query_layer->GetFeature(it->second)->GetRawFieldRef(i));
+      if (buffer || tol) {
+        external_feature->SetGeometryDirectly(_covered_border->Intersection(
+            internal_feature->GetGeometryRef()));
+      } else {
+        external_feature->SetGeometry(internal_feature->GetGeometryRef());
+      }
+      if (!with_extension)
+        external_feature->SetField(
+          query_rasters_name_field_name.c_str(),
+          fs::path(external_feature->GetFieldAsString(
+              query_rasters_name_field_name.c_str())).stem().string().c_str());
+      external_layer->CreateFeature(external_feature.get());
     }
-    external_layer->CreateFeature(external_feature.get());
+    spdlog::debug("Creating external features - done");
+  } else {
+    OGRFieldDefn name_field("name", OFTString);
+    external_layer->CreateField(&name_field);
+
+    // Create external features
+    spdlog::debug("Creating external features");
+    for (const auto& internal_feature : composite_table_layer_) {
+      OGRFeatureUniquePtr external_feature(OGRFeature::CreateFeature(
+          external_layer->GetLayerDefn()));
+      fs::path path(internal_feature->GetFieldAsString(0));
+      if (with_extension) {
+        external_feature->SetField(0, path.filename().string().c_str());
+      } else {
+        external_feature->SetField(0, path.stem().string().c_str());
+      }
+      if (buffer || tol) {
+        external_feature->SetGeometryDirectly(_covered_border->Intersection(
+            internal_feature->GetGeometryRef()));
+      } else {
+        external_feature->SetGeometry(internal_feature->GetGeometryRef());
+      }
+      external_layer->CreateFeature(external_feature.get());
+    }
+    spdlog::debug("Creating external features - done");
   }
-  spdlog::debug("Creating an external feature - done");
   spdlog::info(
       "Export the internal composite table to {} - done", composit_table_path);
   return true;
@@ -296,7 +387,7 @@ bool MosaickingContainerImpl::CreateMosaickingRaster(
         "Warping {} by the corresponding geometry to the mosaicking raster"
         " - done", path.string());
     spdlog::info(
-        "----------- {}/{} - done ----------",
+        "---------- {}/{} - done ----------",
         feature->GetFID() + 1, _composite_table_layer->GetFeatureCount());
   }
   spdlog::info(
@@ -320,21 +411,22 @@ std::shared_ptr<MosaickingContainer> MosaickingContainer::Create(
 
 std::shared_ptr<MosaickingContainer> MosaickingContainer::Create(
     std::shared_ptr<MosaickingInterface> mosaicking,
-    const std::string& composite_tabel_path,
+    const std::string& external_composite_tabel_path,
     const std::string& rasters_dir) {
-  GDALDatasetUniquePtr composite_tabel_dataset(GDALDataset::Open(
-      composite_tabel_path.c_str(), GDAL_OF_VECTOR | GDAL_OF_READONLY));
-  if (!composite_tabel_dataset) {
-    spdlog::warn("Opening {} failed", composite_tabel_path);
+  GDALDatasetUniquePtr dataset(GDALDataset::Open(
+      external_composite_tabel_path.c_str(),
+      GDAL_OF_VECTOR | GDAL_OF_READONLY));
+  if (!dataset) {
+    spdlog::warn("Opening {} failed", external_composite_tabel_path);
     return nullptr;
   }
-  auto composite_table_layer(composite_tabel_dataset->GetLayer(0));
-  if (!composite_table_layer->GetSpatialRef()) {
+  auto layer(dataset->GetLayer(0));
+  if (!layer->GetSpatialRef()) {
     spdlog::warn("No spatial reference is specified for the seamline layer");
     return nullptr;
   }
   return std::make_shared<MosaickingContainerImpl>(
-      mosaicking, composite_table_layer, rasters_dir);
+      mosaicking, layer, rasters_dir);
 }
 
 } // mosaicking

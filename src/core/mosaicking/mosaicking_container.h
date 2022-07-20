@@ -26,7 +26,7 @@ class MosaickingContainerImpl final
       OGRSpatialReference* spatial_ref);
   MosaickingContainerImpl(
       std::shared_ptr<MosaickingInterface> mosaicking,
-      OGRLayer* composite_table_layer,
+      OGRLayer* external_composite_table_layer,
       const std::string& rasters_dir);
   MosaickingContainerImpl(const MosaickingContainerImpl&) = delete;
   MosaickingContainerImpl& operator=(const MosaickingContainerImpl&) = delete;
@@ -44,7 +44,10 @@ class MosaickingContainerImpl final
   bool ExportCompositeTableVector(
       const std::string& composit_table_path,
       double buffer,
-      double tol) override;
+      double tol,
+      const std::string& query_path,
+      const std::string& query_rasters_name_field_name,
+      bool with_extension) override;
 
   std::vector<std::string> ExportAllRastersName() override;
 
@@ -59,7 +62,9 @@ class MosaickingContainerImpl final
   std::shared_ptr<MosaickingInterface> mosaicking_;
 
   GDALDataset* composite_table_dataset_;
+  GDALDataset* border_dataset_;
   OGRLayer* composite_table_layer_;
+  OGRLayer* border_layer_;
   OGRGeometry* covered_border_; // type is multipolygon
 };
 

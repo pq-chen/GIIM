@@ -14,29 +14,27 @@
 namespace rs_toolset {
 namespace stretch {
 
-bool StandardDeviationImpl::AddStatForSingleBlock(
-    const cv::Mat& mat,
-    int band) {
+bool StandardDeviationImpl::AddStatForSingleBand(const cv::Mat& mat, int idx) {
   if (mat.channels() != 1) return false;
-  if (pixels_counts_.size() <= band) {
+  if (pixels_counts_.size() <= idx) {
     pixels_counts_.push_back(cv::countNonZero(mat));
     sums_.push_back(cv::sum(mat)[0]);
     square_sums_.push_back(mat.dot(mat));
   } else {
-    pixels_counts_[band] += cv::countNonZero(mat);
-    sums_[band] += cv::sum(mat)[0];
-    square_sums_[band] += mat.dot(mat);
+    pixels_counts_[idx] += cv::countNonZero(mat);
+    sums_[idx] += cv::sum(mat)[0];
+    square_sums_[idx] += mat.dot(mat);
   }
   return true;
 }
 
-bool StandardDeviationImpl::AddStatForMultiBlock(const cv::Mat& mat) {
+bool StandardDeviationImpl::AddStatForAllBands(const cv::Mat& mat) {
   if (pixels_counts_.size() != 0 && pixels_counts_.size() != mat.channels())
     return false;
   std::vector<cv::Mat> mats;
   cv::split(mat, mats);
   for (int b = 0; b < mats.size(); b++)
-    AddStatForSingleBlock(mats[b], b);
+    AddStatForSingleBand(mats[b], b);
   return true;
 }
 

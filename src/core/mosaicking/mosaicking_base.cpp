@@ -28,12 +28,13 @@ MosaickingBase::MosaickingBase(double tol)
   buffers_per_unit_ = new int[8]{ 0, 10, 15, 20, 25, 30, 30, 30 };
   spdlog::info(
       "Creating a mosaicking base with\n"
-      " - Tolerance for simplifying the seamline : {}", tol);
+      " - Tolerance for simplifying the seamline: {}", tol);
 }
 
 bool MosaickingBase::Run(
     const std::string& raster_path,
     OGRLayer* composite_table_layer,
+    OGRLayer* border_layer,
     OGRGeometry* covered_border,
     int last_overview_idx,
     bool use_seamline) {
@@ -61,6 +62,7 @@ bool MosaickingBase::Run(
         "empty");
     return false;
   }
+  utils::CreateRasterPyra(source_raster_dataset.get());
   int overviews_count(
       source_raster_dataset->GetRasterBand(1)->GetOverviewCount());
   if (last_overview_idx <= 0 || last_overview_idx > overviews_count) {
@@ -69,7 +71,6 @@ bool MosaickingBase::Run(
         "than overviews' count");
     return false;
   }
-  utils::CreateRasterPyra(source_raster_dataset.get());
 
   // Create a border for the source raster and
   int ratio(4);
@@ -78,7 +79,9 @@ bool MosaickingBase::Run(
   source_border.reset(source_border->Simplify(geotrans[1] * ratio * 1.5));
   source_border.reset(source_border->Buffer(geotrans[1] * ratio * -2));
   source_border->transformTo(composite_table_layer->GetSpatialRef());
-  OGRGeometryUniquePtr new_covered_polygon(source_border->clone());
+  OGRGeometryUniquePtr
+      origin_source_border(source_border->clone()),
+      new_covered_polygon(source_border->clone());
   if (covered_border->IsEmpty() || !source_border->Intersect(covered_border)) {
     // Skip for the no intersection situation
     spdlog::info(
@@ -183,7 +186,8 @@ bool MosaickingBase::Run(
         }
         UpdateResults(
             covered_overlap_geometry.get(), new_overlap_geometry.get(),
-            covered_polygon, source_border, composite_table_layer);
+            covered_polygon, border_layer, source_border,
+            composite_table_layer);
         spdlog::debug("Updating the source border with the seamline - done");
       } else {
         spdlog::debug("Updating the source border without the seamline");
@@ -209,13 +213,19 @@ bool MosaickingBase::Run(
         "Adding a subtask with an intersected covered poylgon - done");
   }
 
+  // Update the border layer
+  OGRFeatureUniquePtr border_feature(OGRFeature::CreateFeature(
+      border_layer->GetLayerDefn()));
+  border_feature->SetGeometryDirectly(origin_source_border.release());
+  border_layer->CreateFeature(border_feature.get());
+
   // Create a feature for the source border
   spdlog::debug("Create a feature for the source border");
-  OGRFeatureUniquePtr feature(OGRFeature::CreateFeature(
+  OGRFeatureUniquePtr composite_table_feature(OGRFeature::CreateFeature(
       composite_table_layer->GetLayerDefn()));
-  feature->SetField(0, raster_path.c_str());
-  feature->SetGeometryDirectly(source_border.release());
-  composite_table_layer->CreateFeature(feature.get());
+  composite_table_feature->SetField(0, raster_path.c_str());
+  composite_table_feature->SetGeometryDirectly(source_border.release());
+  composite_table_layer->CreateFeature(composite_table_feature.get());
   spdlog::debug("Create a feature for the source border - done");
   spdlog::info("Running the mosaicking task - done");
   return true;
@@ -411,20 +421,31 @@ void MosaickingBase::RearrangeLabelGeometries(
           seamline_coors.begin(), seamline_coors.end(),
           label0_geometry_json.at("coordinates")[0][0]
           .get<std::pair<double, double>>()) != seamline_coors.end()) {
-    std::vector<std::pair<double, double>> old_coor, new_coors;
-    label0_geometry_json.at("coordinates")[0].get_to(old_coor);
-    auto temp_it1(seamline_coors.begin());
-    auto temp_it2(seamline_coors.rbegin());
-    decltype(old_coor.rbegin()) rit1, rit2;
+    std::vector<std::pair<double, double>> old_coors, new_coors;
+    label0_geometry_json.at("coordinates")[0].get_to(old_coors);
+    int it1_trunc(-1), it2_trunc(-1);
+    decltype(old_coors.begin()) it1, it2;
     do {
-      rit1 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it1);
-      temp_it1++;
-    } while (rit1 == old_coor.rend());
+      it1_trunc++;
+      it1 = std::find(
+          old_coors.begin(), old_coors.end(), 
+          *(seamline_coors.begin() + it1_trunc));
+    } while (it1 == old_coors.end());
     do {
-      rit2 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it2);
-      temp_it2++;
-    } while (rit2 == old_coor.rend());
-    auto it1((rit1 + 1).base()), it2((rit2 + 1).base());
+      it2_trunc++;
+      it2 = std::find(
+          old_coors.begin(), old_coors.end(),
+          *(seamline_coors.rbegin() + it2_trunc));
+    } while (it2 == old_coors.end());
+    if (auto it(std::find(it1 + 1, old_coors.end(), *it1));
+        it != old_coors.end() &&
+        it - it2 + 1 + it1_trunc + it2_trunc != seamline_coors.size()) {
+        it1 = it;
+    } else if (auto it(std::find(it2 + 1, old_coors.end(), *it2));
+        it != old_coors.end() &&
+        it - it1 + 1 + it1_trunc + it2_trunc != seamline_coors.size()) {
+        it2 = it;
+    }
     if (it2 > it1) {
       new_coors.insert(new_coors.end(), it1 + (it2 - it1) / 2, it2);
       new_coors.insert(
@@ -444,20 +465,31 @@ void MosaickingBase::RearrangeLabelGeometries(
           seamline_coors.begin(), seamline_coors.end(),
           label1_geometry_json.at("coordinates")[0][0]
           .get<std::pair<double, double>>()) != seamline_coors.end()) {
-    std::vector<std::pair<double, double>> old_coor, new_coors;
-    label1_geometry_json.at("coordinates")[0].get_to(old_coor);
-    auto temp_it1(seamline_coors.begin());
-    auto temp_it2(seamline_coors.rbegin());
-    decltype(old_coor.rbegin()) rit1, rit2;
+    std::vector<std::pair<double, double>> old_coors, new_coors;
+    label1_geometry_json.at("coordinates")[0].get_to(old_coors);
+    int it1_trunc(-1), it2_trunc(-1);
+    decltype(old_coors.begin()) it1, it2;
     do {
-      rit1 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it1);
-      temp_it1++;
-    } while (rit1 == old_coor.rend());
+      it1_trunc++;
+      it1 = std::find(
+          old_coors.begin(), old_coors.end(), 
+          *(seamline_coors.begin() + it1_trunc));
+    } while (it1 == old_coors.end());
     do {
-      rit2 = std::find(old_coor.rbegin(), old_coor.rend(), *temp_it2);
-      temp_it2++;
-    } while (rit2 == old_coor.rend());
-    auto it1((rit1 + 1).base()), it2((rit2 + 1).base());
+      it2_trunc++;
+      it2 = std::find(
+          old_coors.begin(), old_coors.end(),
+          *(seamline_coors.rbegin() + it2_trunc));
+    } while (it2 == old_coors.end());
+    if (auto it(std::find(it1 + 1, old_coors.end(), *it1));
+        it != old_coors.end() &&
+        it - it2 + 1 + it1_trunc + it2_trunc == seamline_coors.size()) {
+        it1 = it;
+    } else if (auto it(std::find(it2 + 1, old_coors.end(), *it2));
+        it != old_coors.end() &&
+        it - it1 + 1 + it1_trunc + it2_trunc == seamline_coors.size()) {
+        it2 = it;
+    }
     if (it2 > it1) {
       new_coors.insert(new_coors.end(), it1 + (it2 - it1) / 2, it2);
       new_coors.insert(
@@ -563,6 +595,7 @@ void MosaickingBase::UpdateResults(
     OGRGeometry* covered_geometry,
     OGRGeometry* new_geometry,
     OGRGeometry* covered_polygon,
+    OGRLayer* border_layer,
     OGRGeometryUniquePtr& source_border,
     OGRLayer* composite_table_layer) {
   // Update the source border
@@ -579,12 +612,12 @@ void MosaickingBase::UpdateResults(
 
   // Update the composite table
   spdlog::debug("Updating the composite table");
-  std::vector<std::pair<GIntBig, OGRGeometryUniquePtr>> dislocated_geometries;
+  std::vector<std::pair<int, OGRGeometryUniquePtr>> dislocated_geometries;
   for (auto& feature : composite_table_layer) {
-    auto id(feature->GetFID());
-    auto geometry(feature->GetGeometryRef());
-    if (!covered_geometry->Intersect(geometry)) continue;
-    diff_geometry.reset(geometry->Difference(source_border.get()));
+    int id(static_cast<int>(feature->GetFID()));
+    if (!covered_geometry->Intersect(feature->GetGeometryRef())) continue;
+    diff_geometry.reset(
+        feature->GetGeometryRef()->Difference(source_border.get()));
     if (diff_geometry->getGeometryType() == wkbPolygon) {
       dislocated_geometries.emplace_back(id, diff_geometry->clone());
     } else {
@@ -601,18 +634,40 @@ void MosaickingBase::UpdateResults(
         be_head = false;
       }
     }
-    feature->SetGeometry(dislocated_geometries.back().second.get());
+    feature->SetGeometryDirectly(
+        dislocated_geometries.back().second.release());
     composite_table_layer->SetFeature(feature.get());
     dislocated_geometries.pop_back();
   }
-  for (const auto& info : dislocated_geometries)
+  decltype(dislocated_geometries) new_geometries;
+  for (auto& info : dislocated_geometries) {
+    bool b(false);
     for (auto& feature : composite_table_layer)
-      if (info.first != feature->GetFID() &&
-          info.second->Touches(feature->GetGeometryRef())) {
+      if (info.second->Intersects(feature->GetGeometryRef()) &&
+          border_layer->GetFeature(feature->GetFID())->GetGeometryRef()
+              ->Contains(info.second.get())) {
         feature->SetGeometryDirectly(
             info.second->Union(feature->GetGeometryRef()));
         composite_table_layer->SetFeature(feature.get());
+        b = true;
+        break;
       }
+    if (!b)
+      new_geometries.push_back(std::move(info));
+  }
+  for (auto& info : new_geometries) {
+    OGRFeatureUniquePtr composite_table_feature(OGRFeature::CreateFeature(
+        composite_table_layer->GetLayerDefn()));
+    composite_table_feature->SetField(
+        0, composite_table_layer->GetFeature(info.first)->GetFieldAsString(0));
+    composite_table_feature->SetGeometryDirectly(info.second.release());
+    composite_table_layer->CreateFeature(composite_table_feature.get());
+    OGRFeatureUniquePtr border_feature(OGRFeature::CreateFeature(
+        border_layer->GetLayerDefn()));
+    border_feature->SetGeometryDirectly(
+        border_layer->GetFeature(info.first)->GetGeometryRef()->clone());
+    border_layer->CreateFeature(border_feature.get());
+  }
   spdlog::info("Updating the composite table - done");
 }
 

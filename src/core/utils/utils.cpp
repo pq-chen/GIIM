@@ -360,7 +360,8 @@ void CreateRasterPyra(
   if (clean)
     dataset->BuildOverviews("", 0, nullptr, 0, nullptr, nullptr, nullptr);
   if (dataset->GetRasterBand(1)->GetOverviewCount() != 0) return;
-  spdlog::info("Creating raster pyramids");
+
+  spdlog::debug("Creating raster pyramids");
   int x_size(dataset->GetRasterXSize()),
       y_size(dataset->GetRasterYSize()),
       downsample_factor(1),
@@ -431,10 +432,8 @@ int DateMatching(const std::string& string) {
   return 0;
 }
 
-OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry) {
-  if (geometry->getGeometryType() == wkbPolygon) {
-    return OGRGeometryUniquePtr(geometry->clone());
-  } else if (geometry->getGeometryType() == wkbMultiPolygon) {
+void FindBiggestPolygon(OGRGeometryUniquePtr& geometry) {
+  if (geometry->getGeometryType() == wkbMultiPolygon) {
     double area;
     std::pair<int, double> max_geometry(-1, -1.0);
     for (int i = 0; i < geometry->toMultiPolygon()->getNumGeometries(); i++) {
@@ -442,10 +441,9 @@ OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry) {
       if (area > max_geometry.second)
         max_geometry = { i, area };
     }
-    return OGRGeometryUniquePtr(geometry->toMultiPolygon()->
-        getGeometryRef(max_geometry.first)->clone());
+    geometry.reset(geometry->toMultiPolygon()
+        ->getGeometryRef(max_geometry.first)->clone());
   }
-  return nullptr;
 }
 
 std::string GetDate() {
@@ -549,19 +547,19 @@ cv::Mat TransformMatWithLut(
 }
 
 bool WarpByGeometry(
-    const std::vector<GDALDataset*>& source_rasters_dataset,
+    const std::vector<GDALDataset*>& source_datasets,
     const std::vector<OGRGeometry*>& geometries,
-    GDALDatasetUniquePtr& output_raster_dataset,
+    GDALDatasetUniquePtr& output_dataset,
     GDALResampleAlg resample_arg,
     double blend_dist,
     double nodata_value) {
-  if (source_rasters_dataset.size() != geometries.size()) return false;
-  int bands_count(output_raster_dataset->GetRasterCount());
+  if (source_datasets.size() != geometries.size()) return false;
+  int bands_count(output_dataset->GetRasterCount());
   auto bands_map(std::make_unique<int[]>(bands_count));
-  auto bands_nodata(std::make_unique<double[]>(bands_count));
+  auto nodata_values(std::make_unique<double[]>(bands_count));
   for (int b = 0; b < bands_count; b++) {
     bands_map[b] = b + 1;
-    bands_nodata[b] = nodata_value;
+    nodata_values[b] = nodata_value;
   }
   std::unique_ptr<void, void(*)(void*)> trans_arg(
       nullptr, [](void* p) { GDALDestroyGenImgProjTransformer(p); });
@@ -569,11 +567,11 @@ bool WarpByGeometry(
   warp_options->dfCutlineBlendDist = blend_dist;
   warp_options->eResampleAlg = resample_arg;
   warp_options->eWorkingDataType = 
-      output_raster_dataset->GetRasterBand(1)->GetRasterDataType();
-  warp_options->hDstDS = output_raster_dataset.get();
+      output_dataset->GetRasterBand(1)->GetRasterDataType();
+  warp_options->hDstDS = output_dataset.get();
   warp_options->nBandCount = bands_count;
-  warp_options->padfDstNoDataReal = bands_nodata.get();
-  warp_options->padfSrcNoDataReal = bands_nodata.get();
+  warp_options->padfDstNoDataReal = nodata_values.get();
+  warp_options->padfSrcNoDataReal = nodata_values.get();
   warp_options->panDstBands = bands_map.get();
   warp_options->panSrcBands = bands_map.get();
   warp_options->pfnTransformer = GDALGenImgProjTransform;
@@ -583,23 +581,23 @@ bool WarpByGeometry(
   warp_options->papszWarpOptions = CSLSetNameValue(
       warp_options->papszWarpOptions, "CUTLINE_ALL_TOUCHED", "TRUE");
   GDALWarpOperation warp_operation;
-  for (int i = 0; i < source_rasters_dataset.size(); i++) {
+  for (int i = 0; i < source_datasets.size(); i++) {
     trans_arg.reset(GDALCreateGenImgProjTransformer2(
-        source_rasters_dataset[i], output_raster_dataset.get(), nullptr));
+        source_datasets[i], output_dataset.get(), nullptr));
     OGRGeometryUniquePtr cutline_geometry(nullptr);
     if (geometries[i]) {
       double geotrans[6], inv_geotrans[6];
-      source_rasters_dataset[i]->GetGeoTransform(geotrans);
+      source_datasets[i]->GetGeoTransform(geotrans);
       GDALInvGeoTransform(geotrans, inv_geotrans);
       cutline_geometry = ApplyGeoTransToPolygon(geometries[i], inv_geotrans);
       warp_options->hCutline = cutline_geometry.get();
     }
-    warp_options->hSrcDS = source_rasters_dataset[i];
+    warp_options->hSrcDS = source_datasets[i];
     warp_options->pTransformerArg = trans_arg.get();
     warp_operation.Initialize(warp_options.get());
     warp_operation.ChunkAndWarpMulti(
-        0, 0, output_raster_dataset->GetRasterXSize(),
-        output_raster_dataset->GetRasterYSize());
+        0, 0, output_dataset->GetRasterXSize(),
+        output_dataset->GetRasterYSize());
   }
   return true;
 }

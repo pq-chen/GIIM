@@ -37,7 +37,7 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
     spdlog::info(
         "Creating the graph cut mosaicking with\n"
         " - Gradient-self term low trunction: {}\n"
-        " - Gradient-self term low trunction: {}\n"
+        " - Gradient-self term high trunction: {}\n"
         " - Gradient-self term exponential: {}\n"
         " - Difference term low trunction: {}\n"
         " - Difference term exponential: {}",

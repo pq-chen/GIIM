@@ -176,10 +176,9 @@ RS_TOOLSET_API int DateMatching(const std::string& string);
 
 /**
  * @brief Find the biggest polygon from the given geometry
- * @param[in] geometry The given geometry, available types are OGRPolygon and OGRMultiPolygon
- * @return The output biggest polygon
+ * @param[in,out] geometry The given geometry, available types is OGRMultiPolygon
 */
-RS_TOOLSET_API OGRGeometryUniquePtr FindBiggestPolygon(OGRGeometry* geometry);
+RS_TOOLSET_API void FindBiggestPolygon(OGRGeometryUniquePtr& geometry);
 
 /**
  * @brief Transform the current date to the date string
@@ -220,19 +219,19 @@ RS_TOOLSET_API cv::Mat TransformMatWithLut(
     const cv::Mat& lut_mat);
 
 /**
- * @brief Warp source raster datasets to the output raster dataset by the given geometries as cutlines
- * @param[in] source_rasters_dataset Source rasters' dataset
+ * @brief Warp source datasets to the output dataset by the given geometries as cutlines
+ * @param[in] source_datasets Source datasets
  * @param[in] geometries The given geometries
- * @param[out] output_raster_dataset The output raster dataset
+ * @param[out] output_dataset The output dataset
  * @param[in] resample_arg The resample argument, default is GRA_Bilinear
  * @param[in] blend_dist The blend distance, default is 0.0
  * @param[in] nodata_value The nodata value, default is 0.0
  * @return Running state
 */
 RS_TOOLSET_API bool WarpByGeometry(
-    const std::vector<GDALDataset*>& source_rasters_dataset,
+    const std::vector<GDALDataset*>& source_datasets,
     const std::vector<OGRGeometry*>& geometries,
-    GDALDatasetUniquePtr& output_raster_dataset,
+    GDALDatasetUniquePtr& output_dataset,
     GDALResampleAlg resample_arg = GRA_Bilinear,
     double blend_dist = 0.0,
     double nodata_value = 0.0);

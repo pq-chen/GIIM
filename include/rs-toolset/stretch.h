@@ -36,19 +36,19 @@ class RS_TOOLSET_API StretchInterface {
   /**
    * @brief Add statistic for the single-band block mat
    * @param[in] mat The single-band block mat
-   * @param[in] band The given band index
+   * @param[in] idx The given band index
    * @return Running state
   */
-  virtual bool AddStatForSingleBlock(
+  virtual bool AddStatForSingleBand(
       const cv::Mat& mat,
-      int band) = 0;
+      int idx) = 0;
 
   /**
-   * @brief Add statistic for the multi-bands block mat
+   * @brief Add statistic for the all bands block mat
    * @param[in] mat The multi-band block mat
    * @return Running state
   */
-  virtual bool AddStatForMultiBlock(const cv::Mat& mat) = 0;
+  virtual bool AddStatForAllBands(const cv::Mat& mat) = 0;
 
   virtual void ClearStat() = 0;
 };

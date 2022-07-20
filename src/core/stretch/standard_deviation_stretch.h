@@ -26,10 +26,8 @@ class StandardDeviationImpl final
   StandardDeviationImpl& operator=(const StandardDeviationImpl&) = delete;
   ~StandardDeviationImpl() = default;
 
-  bool AddStatForSingleBlock(
-      const cv::Mat& mat,
-      int band) override;
-  bool AddStatForMultiBlock(const cv::Mat& mat) override;
+  bool AddStatForSingleBand(const cv::Mat& mat, int idx) override;
+  bool AddStatForAllBands(const cv::Mat& mat) override;
 
   void SetScale(double scale) override { scale_ = scale; }
   void GetScale(double& scale) override { scale = scale_; }

@@ -35,25 +35,19 @@ int main(int argc, char* argv[]) {
           cxxopts::value<int>()->default_value("16384"))
       ("log-level", "Availalbe levels are trace(t), debug(d), info(i), "
           "warn(w), err(e), critical(c)", cxxopts::value<std::string>());
-  auto result = options.parse(argc, argv);
+  auto result(options.parse(argc, argv));
   if (result.count("help")) {
     std::cout << options.help() << std::endl;
-    return 0;
+    return -1;
   }
-  std::string pan_path, ms_path, pansharpened_path;
-  if (result.count("pan") && result.count("ms") && result.count("output")) {
-    pan_path = result["pan"].as<std::string>();
-    ms_path = result["ms"].as<std::string>();
-    pansharpened_path = result["output"].as<std::string>();
-  } else {
+  if (!result.count("pan") || !result.count("ms") || !result.count("output")) {
     std::cout << "Lack of the \"pan\", the \"ms\" or the \"output\" argument"
-        << std::endl;
-    return 0;
+    << std::endl;
+    return -1;
   }
   std::vector<int> pansharpen_bands_map;
-  if (result.count("bands-map")) {
+  if (result.count("bands-map"))
     pansharpen_bands_map = result["bands-map"].as<std::vector<int>>();
-  }
   if (result.count("log-level")) {
     auto log_level(result["log-level"].as<std::string>());
     if (log_level == "t" || log_level == "trace") {
@@ -77,11 +71,14 @@ int main(int argc, char* argv[]) {
   auto pansharpening(pansharpening::GramSchmidtAdaptive::Create(
       result["block-size"].as<int>()));
   pansharpening->Run(
-      pan_path, ms_path, pansharpened_path, !result["disable-rpc"].as<bool>(),
+      result["pan"].as<std::string>(), result["ms"].as<std::string>(), 
+      result["output"].as<std::string>(), !result["disable-rpc"].as<bool>(),
       !result["disable-stretch"].as<bool>(), pansharpen_bands_map);
-  GDALDatasetUniquePtr dataset(GDALDataset::Open(
-      pansharpened_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY));
-  if (result["build-overviews"].as<bool>())
+  if (result["build-overviews"].as<bool>()) {
+    GDALDatasetUniquePtr dataset(GDALDataset::Open(
+        result["output"].as<std::string>().c_str(),
+        GDAL_OF_RASTER | GDAL_OF_READONLY));
     utils::CreateRasterPyra(dataset.get(), "DEFLATE");
+  }
   return 0;
 }

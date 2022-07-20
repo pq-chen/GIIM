@@ -12,20 +12,18 @@
 namespace rs_toolset {
 namespace stretch {
 
-bool PercentClipImpl::AddStatForSingleBlock(
-    const cv::Mat& mat,
-    int band) {
+bool PercentClipImpl::AddStatForSingleBand(const cv::Mat& mat, int idx) {
   if (mat.channels() != 1) return false;
   std::vector<cv::Mat> hist_mats(utils::CreateHist(mat));
-  if (hist_mats_.size() <= band) {
+  if (hist_mats_.size() <= idx) {
     hist_mats_.push_back(hist_mats[0]);
   } else {
-    hist_mats_[band] += hist_mats[0];
+    hist_mats_[idx] += hist_mats[0];
   }
   return true;
 }
 
-bool PercentClipImpl::AddStatForMultiBlock(const cv::Mat& mat) {
+bool PercentClipImpl::AddStatForAllBands(const cv::Mat& mat) {
   if (hist_mats_.size() != 0 && hist_mats_.size() != mat.channels())
     return false;
   if (!hist_mats_.size()) {

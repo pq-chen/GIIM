@@ -7,13 +7,14 @@
 #include <vector>
 
 #include <cxxopts.hpp>
-#include <spdlog/spdlog.h>
 #include <ogrsf_frmts.h>
+#include <spdlog/spdlog.h>
 
 #include <rs-toolset/mosaicking.h>
 #include <rs-toolset/utils.hpp>
 
 
+namespace fs = std::filesystem;
 using namespace rs_toolset;
 
 int main(int argc, char* argv[]) {
@@ -24,7 +25,8 @@ int main(int argc, char* argv[]) {
   options.add_options()
       ("h,help", "Print usage")
       ("input", "The input rasters' path or directories, only supports DOM "
-          "and tif files", cxxopts::value<std::vector<std::string>>())
+          "with 3-band, 8-bit and GTiff format",
+          cxxopts::value<std::vector<std::string>>())
       ("output-composite-table", "The output composite table path",
           cxxopts::value<std::string>())
       ("output-mosaicking-raster", "The output mosaicking raster path",
@@ -37,8 +39,17 @@ int main(int argc, char* argv[]) {
           "table", cxxopts::value<int>())
       ("input-composite-table", "Initializing the mosaicking container by the "
           "input composite table", cxxopts::value<std::string>())
-      ("input-rasters-dir",  "The input rasters' directory corresponding to "
+      ("input-rasters-dir", "The input rasters' directory corresponding to "
           "the input composit table", cxxopts::value<std::string>())
+      ("query", "The query composite table path to inherit fields",
+          cxxopts::value<std::string>()->default_value(""))
+      ("query-rasters-name-field-name", "The query composite table field "
+          "name representing the raster name",
+          cxxopts::value<std::string>()->default_value(""))
+      ("disable-extension", "Disable the raster name extension in the output "
+          "composite table", cxxopts::value<bool>()->default_value("false"))
+      ("disable-sort", "Disable sort the input rasters", 
+          cxxopts::value<bool>()->default_value("false"))
       ("last-overview-idx", "The last overview index operated on", 
           cxxopts::value<int>()->default_value("3"))
       ("epsg", "The spatial reference epsg code of the output composite table",
@@ -57,10 +68,10 @@ int main(int argc, char* argv[]) {
           cxxopts::value<double>()->default_value("2.0"))
       ("log-level", "Available levels are trace(t), debug(d), info(i), "
           "warn(w), err(e), critical(c)", cxxopts::value<std::string>());
-  auto result = options.parse(argc, argv);
+  auto result(options.parse(argc, argv));
   if (result.count("help")) {
     std::cout << options.help() << std::endl;
-    return 0;
+    return -1;
   }
   std::regex gtiff_reg(".*\\.(tif|tiff|TIF|TIFF)");
   std::string output_mosaicking_raster_path;
@@ -69,8 +80,8 @@ int main(int argc, char* argv[]) {
     if (!std::regex_match(
           result["output-mosaicking-raster"].as<std::string>(), gtiff_reg)) {
       std::cout << "The output mosaicking raster path does not end with "
-          "\".tif/.tiff/.TIF/.TIFF\"" << std::endl;
-      return 0;
+      "\".tif/.tiff/.TIF/.TIFF\"" << std::endl;
+      return -1;
     }
     if (result.count("output-reso")) {
       output_mosaicking_raster_path =
@@ -78,13 +89,13 @@ int main(int argc, char* argv[]) {
       output_reso = result["output-reso"].as<double>();
     } else {
       std::cout << "Lack of the \"output-reso\" argument "
-          "if uses the \"output-mosaicking-raster\" argument" << std::endl;
-      return 0;
+      "if uses the \"output-mosaicking-raster\" argument" << std::endl;
+      return -1;
     }
   } else if (result.count("output-reso")) {
     std::cout << "Lack of the \"output-mosaicking-raster\" argument "
-        "if uses the \"output-reso\" argument" << std::endl;
-    return 0;
+    "if uses the \"output-reso\" argument" << std::endl;
+    return -1;
   }
   std::regex esri_shapefile_reg(".*\\.(shp)");
   std::string input_composite_table_path, input_rasters_dir;
@@ -93,8 +104,8 @@ int main(int argc, char* argv[]) {
           result["input-composite-table"].as<std::string>(),
           esri_shapefile_reg)) {
       std::cout << "The input composite table path does not end with \".shp\""
-          << std::endl;
-      return 0;
+      << std::endl;
+      return -1;
     }
     if (result.count("input-rasters-dir")) {
       input_composite_table_path =
@@ -102,20 +113,13 @@ int main(int argc, char* argv[]) {
       input_rasters_dir = result["input-rasters-dir"].as<std::string>();
     } else {
       std::cout << "Lack of the \"input-rasters-dir\" argument "
-          "if uses the \"input-composite-table\" argument" << std::endl;
+      "if uses the \"input-composite-table\" argument" << std::endl;
     }
   } else if (result.count("rasters-dir")) {
     std::cout << "Lack of the \"input-composite-table\" argument "
-        "if uses the \"input-rasters-dir\" argument" << std::endl;
-    return 0;
+    "if uses the \"input-rasters-dir\" argument" << std::endl;
+    return -1;
   }
-  auto epsg(result["epsg"].as<int>());
-  auto grad_self_low(result["grad-self-low"].as<float>()),
-      grad_self_high(result["grad-self-high"].as<float>()),
-      grad_self_exp(result["grad-self-exp"].as<float>()),
-      diff_low(result["diff-low"].as<float>()),
-      diff_exp(result["diff-exp"].as<float>());
-  auto tol(result["tol"].as<double>());
   if (result.count("log-level")) {
     auto log_level(result["log-level"].as<std::string>());
     if (log_level == "t" || log_level == "trace") {
@@ -136,43 +140,42 @@ int main(int argc, char* argv[]) {
   }
 
   utils::InitGdal(argv[0]);
+  auto graph_cut_mosaicking(mosaicking::GraphCut::Create(
+      result["grad-self-low"].as<float>(),
+      result["grad-self-high"].as<float>(),
+      result["grad-self-exp"].as<float>(), result["diff-low"].as<float>(),
+      result["diff-exp"].as<float>(), result["tol"].as<double>()));
   auto spatial_ref(std::make_unique<OGRSpatialReference>());
-  spatial_ref->importFromEPSG(epsg);
+  spatial_ref->importFromEPSG(result["epsg"].as<int>());
   spatial_ref->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
   std::shared_ptr<mosaicking::MosaickingContainer> mosaicking(nullptr);
   if (input_composite_table_path.empty()) {
     mosaicking = mosaicking::MosaickingContainer::Create(
-        mosaicking::GraphCut::Create(
-            grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp,
-            tol),
-        spatial_ref.get());
+        graph_cut_mosaicking, spatial_ref.get());
   } else {
     mosaicking = mosaicking::MosaickingContainer::Create(
-        mosaicking::GraphCut::Create(
-            grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp,
-            tol),
+        graph_cut_mosaicking,
         result["input-composite-table"].as<std::string>(),
         result["input-rasters-dir"].as<std::string>());
   }
-  std::vector<std::string> existing_rasters_name(
-      mosaicking->ExportAllRastersName());
+  auto existing_rasters_name(mosaicking->ExportAllRastersName());
   std::vector<std::string> rasters_path;
   if (result.count("input")) {
     for (const auto& path : result["input"].as<std::vector<std::string>>()) {
-      if (!std::filesystem::exists(path)) continue;
-      if (std::filesystem::is_directory(path)) {
-        for (const auto& entry : std::filesystem::directory_iterator(path)) {
+      if (!fs::exists(path)) continue;
+      if (fs::is_directory(path)) {
+        for (const auto& entry : fs::directory_iterator(path)) {
           auto subpath(entry.path());
           if (std::regex_match(subpath.filename().string(), gtiff_reg) &&
               std::find(
                 existing_rasters_name.begin(), existing_rasters_name.end(),
                   subpath.filename().string()) == existing_rasters_name.end())
-          rasters_path.push_back(subpath.string());
+            rasters_path.push_back(subpath.string());
         }
       } else if (std::regex_match(path, gtiff_reg) &&
             std::find(
                 existing_rasters_name.begin(), existing_rasters_name.end(),
-                std::filesystem::path(path).filename().string()) ==
+                fs::path(path).filename().string()) ==
                 existing_rasters_name.end()) {
         rasters_path.push_back(path);
       }
@@ -188,15 +191,15 @@ int main(int argc, char* argv[]) {
           result["output-composite-table"].as<std::string>(),
           esri_shapefile_reg)) {
       std::cout << "The output composite table path does not end with \".shp\""
-          << std::endl;
-      return 0;
+      << std::endl;
+      return -1;
     }
     output_composite_table_path =
         result["output-composite-table"].as<std::string>();
   } else if (!rasters_path.empty()) {
     std::cout << 
-        "Lack of the \"output-composite-table\" argument" << std::endl;
-    return 0;
+    "Lack of the \"output-composite-table\" argument" << std::endl;
+    return -1;
   }
   int check_freq;
   if (result.count("check-freq")) {
@@ -204,25 +207,31 @@ int main(int argc, char* argv[]) {
   } else {
     check_freq = static_cast<int>(rasters_path.size());
   }
-  mosaicking->SortRasters(rasters_path);
+  if (!result["disable-sort"].as<bool>())
+    mosaicking->SortRasters(rasters_path);
   for (int i = 0; i < rasters_path.size(); i++) {
     mosaicking->AddTask(
         rasters_path[i], result["last-overview-idx"].as<int>(), true);
     spdlog::info(
-        "----------- {}/{} - done ----------", i + 1, rasters_path.size());
+        "---------- {}/{} - done ----------", i + 1, rasters_path.size());
     if ((i + 1) % check_freq == 0 && (i + 1) != rasters_path.size()) {
-      size_t pos(output_composite_table_path.size() - 4);
+      auto pos(output_composite_table_path.size() - 4);
       mosaicking->ExportCompositeTableVector(
           output_composite_table_path.substr(0, pos) + '_' +
-          std::to_string(i + 1) + ".shp");
+          std::to_string(i + 1) + ".shp", 0.0, 0.0,
+          result["query"].as<std::string>(),
+          result["query-rasters-name-field-name"].as<std::string>());
     }
   }
-  if (!output_composite_table_path.empty()) {
-    mosaicking->ExportCompositeTableVector(output_composite_table_path);
-  }
-  if (!output_mosaicking_raster_path.empty()) {
+  if (!output_composite_table_path.empty())
+    mosaicking->ExportCompositeTableVector(
+        output_composite_table_path, 0.0, 0.0,
+        result["query"].as<std::string>(),
+        result["query-rasters-name-field-name"].as<std::string>(),
+        !result["disable-extension"].as<bool>());
+  if (!output_mosaicking_raster_path.empty())
     mosaicking->CreateMosaickingRaster(
         output_mosaicking_raster_path, "", "", output_reso,
-        result["blend-dist"].as<double>());
-  }
+        result["output-blend-dist"].as<double>());
+  return 0;
 }

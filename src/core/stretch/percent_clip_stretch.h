@@ -30,10 +30,8 @@ class PercentClipImpl final : public StretchBase, public PercentClip {
   PercentClipImpl& operator=(const PercentClipImpl&) = delete;
   ~PercentClipImpl() = default;
 
-  bool AddStatForSingleBlock(
-      const cv::Mat& mat,
-      int band) override;
-  bool AddStatForMultiBlock(const cv::Mat& mat) override;
+  bool AddStatForSingleBand(const cv::Mat& mat, int idx) override;
+  bool AddStatForAllBands(const cv::Mat& mat) override;
 
   void SetPercent(double low_percent, double high_percent) override {
     low_percent_ = low_percent;

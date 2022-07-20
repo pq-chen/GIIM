@@ -31,6 +31,7 @@ class RS_TOOLSET_API MosaickingInterface {
    * @brief Run the mosaicking algorithm on the given raster with the former composite table and the covered border
    * @param[in] raster_path The given raster path
    * @param[in,out] composite_table_layer The former composite table layer
+   * @param[in,out] composite_table_layer The border layer
    * @param[in,out] covered_border The former covered border
    * @param[in] last_overview_idx The last overview index, default is 3 and must be positive
    * @param[in] use_seamline Whether uses the seamline, default is false
@@ -40,6 +41,7 @@ class RS_TOOLSET_API MosaickingInterface {
   virtual bool Run(
       const std::string& raster_path,
       OGRLayer* composite_table_layer,
+      OGRLayer* border_layer,
       OGRGeometry* covered_border,
       int last_overview_idx = 3,
       bool use_seamline = false) = 0;
@@ -115,13 +117,19 @@ class RS_TOOLSET_API MosaickingContainerInterface {
    * @param[in] composit_table_path The exported composit table path
    * @param[in] buffer The buffer distance, only a negative number accepted
    * @param[in] tol The tolerance for simplifying the border
+   * @param query_path[in] The query composite table path, default is empty
+   * @param query_rasters_name_field_name[in] The query composite table field name representing the rasters' name, default is empty
+   * @param with_extension[in] Whether with extension in the raster name field
    * @return Running state
    * @note The unit of "buffer" and "tol" arguments should be the same as the spatial reference's
   */
   virtual bool ExportCompositeTableVector(
       const std::string& composit_table_path,
       double buffer = 0.0,
-      double tol = 0.0) = 0;
+      double tol = 0.0,
+      const std::string& query_path = "",
+      const std::string& query_rasters_name_field_name = "",
+      bool with_extension = true) = 0;
 
   /**
    * @brief Export all rasters' name in the internal composite table
@@ -174,7 +182,7 @@ class RS_TOOLSET_API MosaickingContainer
   */
   static std::shared_ptr<MosaickingContainer> Create(
       std::shared_ptr<MosaickingInterface> mosaicking,
-      const std::string& composite_tabel_path,
+      const std::string& external_composite_tabel_path,
       const std::string& rasters_dir);
 };
 

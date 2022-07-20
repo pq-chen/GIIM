@@ -23,6 +23,7 @@ class MosaickingBase : virtual public MosaickingInterface {
   bool Run(
       const std::string& raster_path,
       OGRLayer* composite_table_layer,
+      OGRLayer* border_layer,
       OGRGeometry* covered_border,
       int last_overview_idx,
       bool use_seamline) override;
@@ -150,6 +151,7 @@ class MosaickingBase : virtual public MosaickingInterface {
    * @param[in] covered_geometry The covered geometry
    * @param[in] new_geometry The new geometry
    * @param[in] covered_polygon The covered polygon
+   * @param[in] border_layer The border layer
    * @param[in,out] source_border The source border
    * @param[in,out] composite_table_layer The composite table layer
   */
@@ -157,6 +159,7 @@ class MosaickingBase : virtual public MosaickingInterface {
       OGRGeometry* covered_geometry,
       OGRGeometry* new_geometry,
       OGRGeometry* covered_polygon,
+      OGRLayer* border_layer,
       OGRGeometryUniquePtr& source_border,
       OGRLayer* composite_table_layer);
 

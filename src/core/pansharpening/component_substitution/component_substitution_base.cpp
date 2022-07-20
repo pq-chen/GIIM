@@ -24,15 +24,19 @@ bool ComponentSubstitutionBase::Run(
     bool use_stretch,
     const std::vector<int>& pansharpened_bands_map) {
   std::string string(
-      "Running a pansharpening task from\n - PAN path: {}\n - MS path: {}\n"
-      " - Pansharpened path: {}\n - Use RPC: {}\n - Use stretch: {}\n"
+      "Running a pansharpening task from\n"
+      " - PAN path: {}\n"
+      " - MS path: {}\n"
+      " - Pansharpened path: {}\n"
+      " - Use RPC: {}\n"
+      " - Use stretch: {}\n"
       " - Pansharpened bands' map: ");
   for (const auto& idx : pansharpened_bands_map)
     string.append(std::to_string(idx)).append(",");
   string.pop_back();
   spdlog::info(
       string, pan_path, ms_path, pansharpened_path, use_rpc, use_stretch);
-  GDALDatasetUniquePtr 
+  GDALDatasetUniquePtr
       pan_dataset(GDALDataset::Open(
           pan_path.c_str(), GDAL_OF_RASTER | GDAL_OF_READONLY)),
       ms_dataset(GDALDataset::Open(

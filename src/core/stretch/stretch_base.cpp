@@ -11,7 +11,6 @@ namespace stretch {
 
 bool StretchBase::Run(std::vector<cv::Mat>& mats, double nodata_value) {
   spdlog::info("Running a stretch task");
-
   if (mats[0].depth() != CV_8U && mats[0].depth() != CV_16U) {
     spdlog::warn(
         "Input mats' type is neither 8-bit unsigned nor 16-bit unsigned");
