@@ -21,6 +21,6 @@ find_package(spdlog REQUIRED)
 find_package(suitesparse REQUIRED)
 
 LinKIn_AddSubdirectories(src/core/utils)
-LinKIn_AddSubdirectories(src/core/stretch)
+LinKIn_AddSubdirectories(src/core/stretching)
 LinKIn_AddSubdirectories(src/core)
 LinKIn_AddSubdirectories(src/app)

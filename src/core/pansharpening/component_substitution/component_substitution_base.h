@@ -8,17 +8,14 @@
 
 #include "../pansharpening_base.h"
 
-
 namespace rs_toolset {
 namespace pansharpening {
 
 class ComponentSubstitutionBase : public PansharpeningBase {
  public:
-  ComponentSubstitutionBase(
-      int block_size,
-      bool need_downsample_info)
-      : need_downsample_info_(need_downsample_info),
-        PansharpeningBase(block_size) {}
+  explicit ComponentSubstitutionBase(int block_size, bool need_downsample_info)
+      : PansharpeningBase(block_size),
+        need_downsample_info_(need_downsample_info) {}
   ComponentSubstitutionBase(const ComponentSubstitutionBase&) = delete;
   ComponentSubstitutionBase& operator=(const ComponentSubstitutionBase&) =
       delete;
@@ -27,81 +24,79 @@ class ComponentSubstitutionBase : public PansharpeningBase {
   bool Run(
       const std::string& pan_path,
       const std::string& ms_path,
-      const std::string& pansharpened_path,
+      const std::string& output_path,
       bool use_rpc,
-      bool use_stretch,
-      const std::vector<int>& pansharpened_bands_map) override;
+      bool use_stretching,
+      const std::vector<int>& bands_map) override;
 
  protected:
   /**
-   * @brief Create a statistic struct
+   * @brief Create a statistics struct
    * @param[in] bands_count The bands' count
-   * @param[in] x_size x size(any kind)
-   * @param[in] y_size y size(any kind)
-   * @return The output statistic struct
+   * @param[in] x_size The MS raster x size
+   * @param[in] y_size The MS raster y size
+   * @return The output statistics struct
   */
-  virtual void* CreateStatistic(
+  virtual void* CreateStatistics(
       int bands_count,
-      int x_size,
-      int y_size) = 0;
+      int ms_x_size,
+      int ms_y_size) = 0;
 
   /**
-   * @brief Update the downsample information in the statistic struct with the given downsampled data if needed
+   * @brief Update the downsample information in the statistics struct with the given downsampled data if needed
    * @param[in] data The given downsampled data
-   * @param[in,out] s The statistic struct
+   * @param[in,out] statistics The statistics struct
   */
-  virtual void UpdateDownsampleInfo(
-      const Data& data,
-      void* s) {}
+  virtual void UpdateDownsampleInfo(const Data& data, void* statistics) {}
 
   /**
-   * @brief Create weights with the statistic struct for building the synthetic low resolution PAN mat
-   * @param[in] s The statistic struct
+   * @brief Create weights with the statistics struct for building the synthetic low resolution PAN mat
+   * @param[in] statistics The statistics struct
    * @return The output weights
   */
-  virtual std::vector<double> CreateWeights(void* s) = 0;
+  virtual std::vector<double> CreateWeights(void* statistics) = 0;
 
   /**
-   * @brief Update the upsample information in the statistic struct with the given upsampled data and weights
-   * @param data[in] Weights
+   * @brief Update the upsample information in the statistics struct with the given upsampled data and weights
+   * @param data[in] The weights
    * @param weights[in] The given upsampled data
-   * @param s[in,out] The statistic struct
+   * @param statistics[in,out] The statistics struct
   */
   virtual void UpdateUpsampleInfo(
       const Data& data,
       const std::vector<double>& weights,
-      void* s) = 0;
+      void* statistics) = 0;
 
   /**
-   * @brief Create injection gains with the statistic struct for building the pansharpened mat
-   * @param s[in] The statistic struct
+   * @brief Create injection gains with the statistics struct for building the pansharpened mat
+   * @param statistics[in] The statistics struct
    * @return The output injection gains
   */
-  virtual std::vector<double> CreateInjectionGains(void* s) = 0;
+  virtual std::vector<double> CreateInjectionGains(void* statistics) = 0;
 
+  /**
+   * @brief Destroy the statistics struct
+   * @param[in,out] statistics The statistics struct
+  */
+  virtual void DestroyStatistics(void* statistics) = 0;
+
+  cv::Mat hist_matching_mat_;
+
+ private:
   /**
    * @brief Create delta mats between the PAN mat and the synthetic low resolution PAN mat for all bands
    * @param data[in] The given upsampled data
-   * @param weights[in] Weights
-   * @param s[in] The statistic struct
+   * @param weights[in] The weights
    * @return The output delta mats
   */
-  virtual std::vector<cv::Mat> CreateDeltaMats(
+  std::vector<cv::Mat> CreateDeltaMats(
       const Data& data,
-      const std::vector<double>& weights,
-      void* s) = 0;
+      const std::vector<double>& weights);
 
-  /**
-   * @brief Destroy the statistic struct
-   * @param[in,out] s The statistic struct
-  */
-  virtual void DestroyStatistic(void* s) = 0;
-
- private:
-  bool need_downsample_info_; // Whether needs downsample information
+  bool need_downsample_info_;
 };
 
-} // pansharpening
-} // rs_toolset
+}  // namespace pansharpening
+}  // namespace rs_toolset
 
-#endif // RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_COMPONENT_SUBSTITUTION_BASE_H_
+#endif  // RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_COMPONENT_SUBSTITUTION_BASE_H_

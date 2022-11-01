@@ -4,45 +4,29 @@
 #pragma warning(disable:4250)
 
 #include <cstdint>
-
 #include <map>
+#include <vector>
+#include <utility>
 
 #include <gdal_priv.h>
 #include <ogrsf_frmts.h>
 #include <opencv2/opencv.hpp>
-#include <spdlog/spdlog.h>
 
 #include "mosaicking_base.h"
 #include <rs-toolset/mosaicking.h>
-
 
 namespace rs_toolset {
 namespace mosaicking {
 
 class GraphCutImpl final : public MosaickingBase, public GraphCut {
  public:
-  GraphCutImpl(
+  explicit GraphCutImpl(
       float grad_self_low,
       float grad_self_high,
       float grad_self_exp,
       float diff_low,
       float diff_exp,
-      double tol)
-      : MosaickingBase(tol),
-        grad_self_low_(grad_self_low),
-        grad_self_high_(grad_self_high),
-        grad_self_exp_(grad_self_exp),
-        diff_low_(diff_low),
-        diff_exp_(diff_exp) {
-    spdlog::info(
-        "Creating the graph cut mosaicking with\n"
-        " - Gradient-self term low trunction: {}\n"
-        " - Gradient-self term high trunction: {}\n"
-        " - Gradient-self term exponential: {}\n"
-        " - Difference term low trunction: {}\n"
-        " - Difference term exponential: {}",
-        grad_self_low, grad_self_high, grad_self_exp, diff_low, diff_exp);
-  }
+      double tol);
   GraphCutImpl(const GraphCutImpl&) = delete;
   GraphCutImpl& operator=(const GraphCutImpl&) = delete;
   ~GraphCutImpl() = default;
@@ -64,7 +48,7 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
     cv::Mat new_mat;
     cv::Mat new_x_mat;
     cv::Mat new_y_mat;
-    std::vector<std::pair<int, int>>* idxes_to_coors;
+    std::vector<std::pair<int, int>>* idx_to_coor;
   };
 
   void PrepareData(
@@ -101,7 +85,7 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
   float diff_exp_;
 };
 
-} // mosaicking
-} // rs_toolset
+}  // namespace mosaicking
+}  // namespace rs_toolset
 
-#endif // RS_TOOLSET_SRC_CORE_MOSAICKING_GRAPH_CUT_MOSAICKING_H_
+#endif  // RS_TOOLSET_SRC_CORE_MOSAICKING_GRAPH_CUT_MOSAICKING_H_

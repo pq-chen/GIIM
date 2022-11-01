@@ -11,36 +11,36 @@
 #include "component_substitution_base.h"
 #include <rs-toolset/pansharpening.h>
 
-
 namespace rs_toolset {
 namespace pansharpening {
 
 class GramSchmidtImpl final 
     : public ComponentSubstitutionBase, public GramSchmidt {
  public:
-  GramSchmidtImpl(int block_size)
-      : ComponentSubstitutionBase(block_size, false) {}
+  explicit GramSchmidtImpl(int block_size)
+      : ComponentSubstitutionBase(block_size, false) {
+    spdlog::info("Creating a Gram-Schmidt pansharpening");
+  }
   GramSchmidtImpl(const GramSchmidtImpl&) = delete;
   GramSchmidtImpl& operator=(const GramSchmidtImpl&) = delete;
   ~GramSchmidtImpl() override = default;
 
  private:
-  struct Statistic {
+  struct Statistics {
     int pixels_count;
-    double synthetic_low_reso_pan_sum_;
-    double synthetic_low_reso_pan_square_sum_;
-    std::vector<double> upsampled_ms_sums_;
-    std::vector<double> product_sums_;
-    std::vector<cv::Mat> pan_hist_mat;
-    std::vector<cv::Mat> synthetic_low_reso_pan_hist_mat;
-    cv::Mat hist_matching_mat;
+    double synthetic_low_reso_pan_sum;
+    double synthetic_low_reso_pan_square_sum;
+    std::vector<double> upsampled_ms_sums;
+    std::vector<double> product_sums;
+    cv::Mat pan_hist_mat;
+    cv::Mat synthetic_low_reso_pan_hist_mat;
   };
 
-  void* CreateStatistic(
+  void* CreateStatistics(
       int bands_count,
-      int x_size,
-      int y_size) override {
-    return static_cast<void*>(new Statistic{
+      int ms_x_size,
+      int ms_y_size) override {
+    return static_cast<void*>(new Statistics{
         0,
         0.0,
         0.0,
@@ -48,32 +48,25 @@ class GramSchmidtImpl final
         std::vector<double>(bands_count, 0.0) });
   }
 
-  std::vector<double> CreateWeights(void* s) override {
-    spdlog::debug("Creating the weights");
-    auto _s(static_cast<Statistic*>(s));
-    int bands_count(static_cast<int>(_s->upsampled_ms_sums_.size()));
-    spdlog::info("Creating the weights - done");
+  std::vector<double> CreateWeights(void* statistics) override {
+    auto s(static_cast<Statistics*>(statistics));
+    int bands_count(static_cast<int>(s->upsampled_ms_sums.size()));
     return std::vector<double>(bands_count, 1.0 / bands_count);
   }
 
   void UpdateUpsampleInfo(
       const Data& data,
       const std::vector<double>& weights,
-      void* s) override;
+      void* statistics) override;
 
-  std::vector<double> CreateInjectionGains(void* s) override;
+  std::vector<double> CreateInjectionGains(void* statistics) override;
 
-  std::vector<cv::Mat> CreateDeltaMats(
-      const Data& data,
-      const std::vector<double>& weights,
-      void* s) override;
-
-  void DestroyStatistic(void* s) override {
-    delete static_cast<Statistic*>(s);
+  void DestroyStatistics(void* statistics) override {
+    delete static_cast<Statistics*>(statistics);
   }
 };
 
-} // pansharpening
-} // rs_toolset
+}  // namespace pansharpening
+}  // namespace rs_toolset
 
-#endif // RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_GRAM_SCHMIDT_H_
+#endif  // RS_TOOLSET_SRC_CORE_PANSHARPENING_COMPONENT_SUBSTITUTION_GRAM_SCHMIDT_H_
