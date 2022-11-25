@@ -17,7 +17,7 @@ int main(int argc, char* argv[]) {
       "raster and the multispectral(MS) raster over the same area");
   options.add_options()
       ("h,help", "Print usage")
-      ("method", "Available methods include \"GS\" and \"GSA\"", cxxopts::value<std::string>()->default_value("GSA"))
+      ("method", "Available methods including \"GS\" and \"GSA\"", cxxopts::value<std::string>()->default_value("GSA"))
       ("pan", "The PAN raster path", cxxopts::value<std::string>())
       ("ms", "The MS raster path", cxxopts::value<std::string>())
       ("output", "The output raster path", cxxopts::value<std::string>())
@@ -26,7 +26,7 @@ int main(int argc, char* argv[]) {
       ("o,overviews", "Build overviews for the output raster", cxxopts::value<bool>()->default_value("false"))
       ("bands-map", "The bands' map from the MS raster to the output raster", cxxopts::value<std::vector<int>>())
       ("block-size", "The block size", cxxopts::value<int>()->default_value("4096"))
-      ("log-level", "Available levels are trace(t), debug(d), info(i), warn(w), err(e), critical(c), off(o)", cxxopts::value<std::string>()->default_value("i"));
+      ("log-level", "Available log levels including trace(t), debug(d), info(i), warn(w), err(e), critical(c), off(o)", cxxopts::value<std::string>()->default_value("i"));
 
   utils::InitGdal(argv[0]);
   auto result(options.parse(argc, argv));
@@ -58,8 +58,8 @@ int main(int argc, char* argv[]) {
   } else if (log_level == "o" || log_level == "off") {
     utils::InitSpdlog("Mosaicking", spdlog::level::level_enum::off);
   } else {
-    std::cout << "Available levels are trace(t), debug(d), info(i), warn(w), "
-        "err(e), critical(c), off(o)" << std::endl;
+    std::cout << "Available levels including trace(t), debug(d), info(i), "
+        "warn(w), err(e), critical(c), off(o)" << std::endl;
     return -1;
   }
 

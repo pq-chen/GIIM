@@ -22,15 +22,17 @@ class MosaickingBase : virtual public MosaickingInterface {
   MosaickingBase& operator=(const MosaickingBase&) = delete;
   virtual ~MosaickingBase() { delete[] buffers_; }
 
-  bool RunTaskForExisting(
+  bool RunTaskForSerial(
       const std::string& path,
-      OGRLayer* composite_table_layer,
+      OGRLayer* mosaicking_layer,
       OGRLayer* border_layer,
       OGRGeometry* covered_border,
       std::vector<double>& borders_area,
+      int low_overviews_trunc,
+      int high_overviews_trunc,
+      double surrounded_buffer,
       double rejection_ratio,
-      int low_overview_trunc,
-      int high_overview_trunc,
+      bool anti_surrounded,
       const std::vector<int>& rgb_bands_map,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing) override;
@@ -42,8 +44,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       OGRGeometry* border2,
       OGRGeometry* geometry1,
       OGRGeometry* geometry2,
-      int low_overview_trunc,
-      int high_overview_trunc,
+      int low_overviews_trunc,
+      int high_overviews_trunc,
       const std::vector<int>& rgb_bands_map,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing,
@@ -55,13 +57,32 @@ class MosaickingBase : virtual public MosaickingInterface {
   GDALDriver* mem_driver_;
 
  private:
+  enum class Status {
+    OVERLAP,
+    SURROUNDED,
+    ANTI_SURROUNDED,
+  };
+
+  bool InitializeOverlapGeometries(
+      double factor,
+      double* geotrans,
+      double surrounded_buffer,
+      double rejection_ratio,
+      bool anti_surrounded,
+      OGRPolygon* covered_polygon,
+      OGRGeometryUniquePtr& source_border,
+      std::vector<OGRGeometryUniquePtr>& covered_overlap_geometries,
+      std::vector<OGRGeometryUniquePtr>& new_overlap_geometries,
+      std::vector<OGRGeometryUniquePtr>& source_borders,
+      Status& status);
+
   /**
    * @brief Create overlap datasets and the label dataset with the given overlap geometries for the existing
    * @param[in] factor The downsample factor
    * @param[in] geotrans The geotransform after reprojection
    * @param[in] rgb_bands_map The RGB bands' map
-   * @param[in] source_raster_dataset The source raster dataset
-   * @param[in] composite_table_layer The composite table layer
+   * @param[in] source_raster_path The source raster path
+   * @param[in] mosaicking_layer The mosaicking layer
    * @param[in] covered_overlap_geometry The covered overlap geometry
    * @param[in] new_overlap_geometry The new overlap geometry
    * @param[in] color_balancing The color balancing shared pointer
@@ -74,8 +95,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       double factor,
       double* geotrans,
       const std::vector<int>& rgb_bands_map,
-      GDALDataset* source_raster_dataset,
-      OGRLayer* composite_table_layer,
+      const std::string& source_raster_path,
+      OGRLayer* mosaicking_layer,
       OGRGeometry* covered_overlap_geometry,
       OGRGeometry* new_overlap_geometry,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
@@ -107,8 +128,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       double* geotrans,
       const std::vector<int>& rgb_bands_map,
       OGRSpatialReference* spatial_ref,
-      GDALDataset* raster_dataset1,
-      GDALDataset* raster_dataset2,
+      const std::string& raster_path1,
+      const std::string& raster_path2,
       OGRGeometry* overlap_geometry1,
       OGRGeometry* overlap_geometry2,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
@@ -120,28 +141,48 @@ class MosaickingBase : virtual public MosaickingInterface {
       GDALDatasetUniquePtr& label_raster_dataset);
 
   /**
-   * @brief Update the label raster and the overlap geometries
-   * @param[in] idx The index of current operation
+   * @brief Create seamlines between overlap_geometries
+   * @param[in] geotrans geotrans The geotrans of covered or new overlap dataset
    * @param[in] covered_overlap_dataset The covered overlap dataset
    * @param[in] new_overlap_dataset The new overlap dataset
-   * @param[in] valid_geometry The valid geometry
    * @param[in,out] label_raster_dataset The output label raster dataset
-   * @param[in,out] covered_overlap_geometry The output covered overlap geometry except the last operation
-   * @param[in,out] new_overlap_geometry The output new overlap geometry except the last operation
-   * @param[in] last Whether is the last operation or not, default is false
-   * @param[in] buffer_at_end The buffer distance in pixels at the end, default is 2.0
+   * @param[in,out] covered_overlap_geometry The output covered overlap geometry
+   * @param[in,out] new_overlap_geometry The output new overlap geometry
+   * @param[in] swap Whether swaps label0 geometry and label1 geometry in the mosaicking, default is false
+   * @param[in] subtasks_count The substasks' count, default is 0 means no subtask dispatch
    * @return Running state
   */
-  void UpdateMediums(
-      int idx,
+  bool CreateSeamlines(
+      double* geotrans,
       GDALDataset* covered_overlap_dataset,
       GDALDataset* new_overlap_dataset,
-      OGRGeometry* valid_geometry,
       GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& covered_overlap_geometry,
       OGRGeometryUniquePtr& new_overlap_geometry,
-      bool last = false,
-      double buffer_at_end = 2.0);
+      bool swap = false,
+      int subtasks_count = 0);
+
+  /**
+   * @brief Update the label raster and the overlap geometries
+   * @param[in] serial Whether is the serial case or not
+   * @param[in] idx The index of current operation
+   * @param[in] last Whether is the last operation or not
+   * @param[in] overlap Whether is the overlap case or not
+   * @param[in] geotrans The geotrans of covered or new overlap dataset
+   * @param[in] valid_geometry The valid geometry
+   * @param[in,out] covered_overlap_geometry The output covered overlap geometry except the last operation
+   * @param[in,out] new_overlap_geometry The output new overlap geometry except the last operation'
+   * @return Running state
+  */
+  bool UpdateMediums(
+      bool serial,
+      int idx,
+      bool last,
+      bool overlap,
+      double* geotrans,
+      OGRGeometry* valid_geometry,
+      OGRGeometryUniquePtr& covered_overlap_geometry,
+      OGRGeometryUniquePtr& new_overlap_geometry);
 
   /**
    * @brief Prepare data for the mosaicking algorithm
@@ -168,11 +209,14 @@ class MosaickingBase : virtual public MosaickingInterface {
    * @param[in] geotrans The geotransform of the above mats
    * @param[in] spatial_ref The spatial reference of the above mats
    * @param[out] label_raster_dataset The output label raster dataset
-   * @param[out] label0_geometry The output label0 boundary
-   * @param[out] label1_geometry The output label1 boundary
-   * @note In the all-surrounded case, the label1_geometry should cover the label0_geometry
+   * @param[out] label0_geometry The output label0 geometry
+   * @param[out] label1_geometry The output label1 geometry
+   * @param[in] swap Whether swaps label0 geometry and label1 geometry in the mosaicking, default is false
+   * @param[in] subtasks_count The substasks' count, default is 0 means no subtask dispatch
+   * @return Running state
+   * @note In the all-surrounded case, the label1 geometry should cover the label0 geometry
   */
-  virtual void ExecuteMosaicking(
+  virtual bool ExecuteMosaicking(
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
       const cv::Mat& label_mat,
@@ -180,16 +224,18 @@ class MosaickingBase : virtual public MosaickingInterface {
       OGRSpatialReference* spatial_ref,
       GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& label0_geometry,
-      OGRGeometryUniquePtr& label1_geometry) = 0;
+      OGRGeometryUniquePtr& label1_geometry,
+      bool swap = false,
+      int subtasks_count = 0) = 0;
 
   /**
-   * @brief Update the source border, the composite table layer and the border layer
+   * @brief Update the source border, the mosaicking layer and the border layer
    * @param[in] covered_geometry The covered geometry
    * @param[in] new_geometry The new geometry
    * @param[in] covered_polygon The covered polygon
-   * @param[in] rejection_ratio The regularization term to reject a new item in the output composite table
+   * @param[in] rejection_ratio The regularization term to reject a new item
    * @param[in,out] source_border The source border
-   * @param[in,out] composite_table_layer The composite table layer
+   * @param[in,out] mosaicking_layer The mosaicking layer
    * @param[in,out] border_layer The border layer
    * @param[in,out] borders_area The borders' area
   */
@@ -199,7 +245,7 @@ class MosaickingBase : virtual public MosaickingInterface {
       OGRGeometry* covered_polygon,
       double rejection_ratio,
       OGRGeometryUniquePtr& source_border,
-      OGRLayer* composite_table_layer,
+      OGRLayer* mosaicking_layer,
       OGRLayer* border_layer,
       std::vector<double>& borders_area);
 

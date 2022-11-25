@@ -47,29 +47,33 @@ bool RS_TOOLSET_API SortByReso(
 class RS_TOOLSET_API MosaickingInterface {
  public:
   /**
-   * @brief Run the mosaicking algorithm between the given raster and the former composite table
+   * @brief Run the mosaicking algorithm between the given raster and the former mosaicking layer
    * @param[in] path The given raster path
-   * @param[in,out] composite_table_layer The former composite table layer
+   * @param[in,out] mosaicking_layer The former mosaicking layer
    * @param[in,out] border_layer The former border layer
-   * @param[in,out] covered_border The former covered border, type it OGRMultiPolygon
+   * @param[in,out] covered_border The former covered border, type is OGRMultiPolygon
    * @param[in,out] borders_area The former borders' area
-   * @param[in] rejection_ratio The regularization term to reject a new item in the output composite table, default is 0.01
-   * @param[in] low_overview_trunc The low overview trunction, default is 3 and must be non-negative
-   * @param[in] high_overview_trunc The high overview trunction, default is 1 and must be non-negative
+   * @param[in] low_overviews_trunc The low overviews trunction, default is 3
+   * @param[in] high_overviews_trunc The high overviews trunction, default is 1
+   * @param[in] surrounded_buffer The buffer distance in pixels in the (anti-)surrounded case, default is 100.0
+   * @param[in] rejection_ratio The regularization term to reject creating a new item, default is 0.0005
+   * @param[in] anti_surrounded Whether deals with the anti-surrounded case or not, default is false
    * @param[in] rgb_bands_map The RGB bands' map, default is empty means first three bands
    * @param[in] color_balancing The color balancing shared pointer, default is nullptr
    * @return Running state
    * @note This method should be used in the mosaicking container instead of running alone
   */
-  virtual bool RunTaskForExisting(
+  virtual bool RunTaskForSerial(
       const std::string& path,
-      OGRLayer* composite_table_layer,
+      OGRLayer* mosaicking_layer,
       OGRLayer* border_layer,
       OGRGeometry* covered_border,
       std::vector<double>& borders_area,
-      double rejection_ratio = 0.01,
-      int low_overview_trunc = 3,
-      int high_overview_trunc = 1,
+      int low_overviews_trunc = 3,
+      int high_overviews_trunc = 1,
+      double surrounded_buffer = 100.0,
+      double rejection_ratio = 0.0005,
+      bool anti_surrounded = false,
       const std::vector<int>& rgb_bands_map = {},
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing = nullptr) = 0;
@@ -82,13 +86,13 @@ class RS_TOOLSET_API MosaickingInterface {
    * @param[in] border2 The second border, create a new border if empty
    * @param[in] geometry1 The first covered geometry
    * @param[in] geometry2 The second covered geometry
-   * @param[in] low_overview_trunc The low overview trunction, default is 3 and must be non-negative
-   * @param[in] high_overview_trunc The high overview trunction, default is 1 and must be non-negative
+   * @param[in] low_overviews_trunc The low overviews trunction, default is 3
+   * @param[in] high_overviews_trunc The high overviews trunction, default is 1
    * @param[in] rgb_bands_map The RGB bands' map, default is empty means first three bands
    * @param[in] color_balancing The color balancing shared pointer, default is nullptr
    * @param[in] color_balancing_idx1 The first color balancing index, default is -1 means no color balancing
    * @param[in] color_balancing_idx2 The second color balancing index, default is -1 means no color balancing
-   * @return The output seamline geometry, type is OGRLineString
+   * @return The output seamline
    * @note The border1 and the border2 should have the same spatial reference
   */
   virtual OGRGeometryUniquePtr RunTaskForPair(
@@ -98,8 +102,8 @@ class RS_TOOLSET_API MosaickingInterface {
       OGRGeometry* border2,
       OGRGeometry* geometry1,
       OGRGeometry* geometry2,
-      int low_overview_trunc = 3,
-      int high_overview_trunc = 1,
+      int low_overviews_trunc = 3,
+      int high_overviews_trunc = 1,
       const std::vector<int>& rgb_bands_map = {},
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing = nullptr,
@@ -129,40 +133,36 @@ class RS_TOOLSET_API GraphCut : virtual public MosaickingInterface {
       double tol = 2.0);
 };
 
-/** @brief Mosaicking container class */
-class RS_TOOLSET_API MosaickingContainer {
+/** @brief Serial container class */
+class RS_TOOLSET_API SerialContainer {
  public:
   using SortFunc = std::function<bool(const RasterInfo&, const RasterInfo&)>;
 
   /**
-   * @brief Create a mosaicking container shared pointer
+   * @brief Create a serial container shared pointer
    * @param[in] mosaicking The mosaicking shared pointer
    * @param[in] spatial_ref The spatial reference, which needs SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER) since GDAL 3.0
-   * @param[in] rejection_ratio The regularization term to reject a new item in the output composite table, default is 0.01
    * @param[in] color_balancing The color balancing shared pointer, default is nullptr
-   * @return The output mosaicking container shared pointer
+   * @return The output serial container shared pointer
   */
-  static std::shared_ptr<MosaickingContainer> Create(
+  static std::shared_ptr<SerialContainer> Create(
       const std::shared_ptr<MosaickingInterface>& mosaicking,
       OGRSpatialReference* spatial_ref,
-      double rejection_ratio = 0.01,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing = nullptr);
 
   /**
-   * @brief Create a mosaicking container shared pointer initialized by the external composite tabel
+   * @brief Create a serial container shared pointer initialized by the former mosaicking vector
    * @param[in] mosaicking The mosaicking shared pointer
-   * @param[in] composite_tabel_path The external composite tabel path
-   * @param[in] rasters_dir The rasters' directory corresponding to the external composite table
-   * @param[in] rejection_ratio The regularization term to reject a new item in the output composite table, default is 0.01
+   * @param[in] mosaicking_vector_path The former mosaicking vector path
+   * @param[in] rasters_dir The rasters' directory corresponding to the former mosaicking vector
    * @param[in] color_balancing The color balancing shared pointer, default is nullptr
-   * @return The output mosaicking container shared pointer
+   * @return The output serial container shared pointer
   */
-  static std::shared_ptr<MosaickingContainer> Create(
+  static std::shared_ptr<SerialContainer> Create(
       const std::shared_ptr<MosaickingInterface>& mosaicking,
-      const std::string& composite_tabel_path,
+      const std::string& mosaicking_vector_path,
       const std::string& rasters_dir,
-      double rejection_ratio = 0.01,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing = nullptr);
 
@@ -177,38 +177,53 @@ class RS_TOOLSET_API MosaickingContainer {
       const SortFunc& sort_func = rs_toolset::mosaicking::SortByReso) = 0;
 
   /**
-   * @brief Add a task to run the mosaicking algorithm with the internal composite table
+   * @brief Add a task to run the mosaicking algorithm with the internal mosaicking vector
    * @param[in] path The task raster path
-   * @param[in] low_overview_trunc The low overview trunction, default is 3 and must be non-negative
-   * @param[in] high_overview_trunc The high overview trunction, default is 1 and must be non-negative
+   * @param[in] low_overviews_trunc The low overviews trunction, default is 3
+   * @param[in] high_overviews_trunc The high overviews trunction, default is 1
+   * @param[in] surrounded_buffer The buffer distance in pixels in the (anti-)surrounded case, default is 100.0
+   * @param[in] rejection_ratio The regularization term to reject a new item in the output mosaicking vector, default is 0.0005
+   * @param[in] anti_surrounded Whether deals with the anti-surrounded case or not, default is false
    * @param[in] rgb_bands_map The RGB bands' map, default is empty means first three bands
    * @return Running state
   */
   virtual bool AddTask(
       const std::string& path,
-      int low_overview_trunc = 3,
-      int high_overview_trunc = 1,
+      int low_overviews_trunc = 3,
+      int high_overviews_trunc = 1,
+      double surrounded_buffer = 100.0,
+      double rejection_ratio = 0.0005,
+      bool anti_surrounded = false,
       const std::vector<int>& rgb_bands_map = {}) = 0;
 
   /**
-   * @brief Export the internal composite table to the given path
-   * @param[in] output_path The exported composite table path
-   * @param[in] query_path The query composite table path, default is empty
-   * @param[in] query_rasters_name_field_name The query composite table field name representing the raster name, default is empty
-   * @param[in] with_extension Whether remains the extension in the raster name field or not, default is true
-   * @return The output composite table
+   * @brief Export the internal mosaicking vector to the given path
+   * @param[in] output_path The exported mosaicking vector path
+   * @param[in] query_path The query mosaicking vector path, default is empty
+   * @param[in] query_raster_name_field_name The query mosaicking vector field name representing the raster name, default is empty
+   * @param[in] extension Whether remains the extension in the raster name field or not, default is true
+   * @return The output mosaicking vector
   */
-  virtual GDALDatasetUniquePtr ExportCompositeTable(
+  virtual GDALDatasetUniquePtr ExportMosaickingVector(
       const std::string& output_path,
       const std::string& query_path = "",
-      const std::string& query_rasters_name_field_name = "",
-      bool with_extension = true) = 0;
+      const std::string& query_raster_name_field_name = "",
+      bool extension = true) = 0;
 
   /**
-   * @brief Export all rasters' name in the internal composite table
-   * @return The output rasters' name
+   * @brief Export the internal border vector to the given path
+   * @param[in] output_path output_path The exported border vector path
+   * @return The output border vector
   */
-  virtual std::vector<std::string> ExportAllRastersName() = 0;
+  virtual GDALDatasetUniquePtr ExportBorderVector(
+      const std::string& output_path) = 0;
+      
+
+  /**
+   * @brief Export all rasters' path in the internal mosaicking vector
+   * @return The output rasters' path
+  */
+  virtual std::vector<std::string> ExportAllRastersPath() = 0;
 
   /** @todo virtual bool ExportStatusToJson() = 0; */
 
@@ -229,44 +244,67 @@ class RS_TOOLSET_API VoronoiDiagrams {
   /**
    * @brief Run the voronoi diagrams algorithm on the given rasters
    * @param[in] rasters_path The given rasters' path
-   * @param[in] output_path The output composite table path
+   * @param[in] output_path The output mosaicking vector path
    * @param[in] spatial_ref The spatial reference, which needs SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER) since GDAL 3.0
    * @param[in] with_refinement Whether needs to refine the seamlines in the voronoi diagrams or not, default is true
-   * @param[in] low_overview_trunc The low overview trunction, default is 3 and must be non-negative
-   * @param[in] high_overview_trunc The high overview trunction, default is 1 and must be non-negative
+   * @param[in] low_overviews_trunc The low overviews trunction, default is 3 and must be non-negative
+   * @param[in] high_overviews_trunc The high overviews trunction, default is 1 and must be non-negative
    * @param[in] rgb_bands_map The RGB bands' map, default is empty means first three bands
    * @param[in] color_balancing The color balancing shared pointer, default is nullptr
-   * @return The output composite table
+   * @return The output mosaicking vector
   */
   virtual GDALDatasetUniquePtr Run(
       const std::vector<std::string>& rasters_path,
       const std::string& output_path,
       OGRSpatialReference* spatial_ref,
       bool with_refinement = true,
-      int low_overview_trunc = 3,
-      int high_overview_trunc = 1,
+      int low_overviews_trunc = 3,
+      int high_overviews_trunc = 1,
       const std::vector<int>& rgb_bands_map = {},
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing = nullptr) = 0;
 };
 
 /**
-  * @brief Create a mosaicking raster from the given composite table
-  * @param[in] path The output mosaicking raster path
-  * @param[in] layer The given composite table layer
-  * @param[in] reso The output resolution
-  * @param[in] color_balancing The color balancing shared pointer, default is nullptr
-  * @param[in] blend_dist The output blend distance in pixels, default is 0.0
-  * @return The output mosaicking raster dataset
-  * @note The blend operation costs much more time than directly warping
+ * @brief Create a mosaicking raster with the given mosaicking layer
+ * @param[in] layer The given mosaicking layer
+ * @param[in] input_paths The input rasters' path
+ * @param[in] output_path The output mosaicking raster path
+ * @param[in] reso The output mosaicking raster resolution
+ * @param[in] compression The output mosaicking raster compression method, default is empty
+ * @param[in] blend_dist The output mosaicking raster blend distance in pixels, default is 0.0
+ * @param[in] rgb_bands_map The RGB bands' map, default is empty means all bands
+ * @param[in] color_balancing The color balancing shared pointer, default is nullptr
+ * @return The output mosaicking raster dataset
 */
 RS_TOOLSET_API GDALDatasetUniquePtr CreateMosaickingRaster(
-    const std::string& path,
     OGRLayer* layer,
+    const std::vector<std::string>& input_paths,
+    const std::string& output_path,
     double reso,
+    const std::string& compression = "",
+    double blend_dist = 0.0,
+    const std::vector<int>& rgb_bands_map = {},
     const std::shared_ptr<color_balancing::ColorBalancingInterface>&
-        color_balancing = nullptr,
-    double blend_dist = 0.0);
+        color_balancing = nullptr);
+
+/**
+ * @brief Create rasters' cut with the given mosaicking layer
+ * @param[in] layer The given mosaicking layer
+ * @param[in] input_paths The input rasters' path
+ * @param[in] output_dir The output rasters' cut directory
+ * @param[in] raster_name_field_name The field name representing the raster name, default is empty
+ * @param[in] compression The output rasters' cut compression method, default is empty
+ * @param[in] rgb_bands_map The RGB bands' map, default is empty means all bands
+ * @return Running state
+*/
+RS_TOOLSET_API bool CreateRastersCut(
+    OGRLayer* layer,
+    const std::vector<std::string>& input_paths,
+    const std::string& output_dir,
+    const std::string& raster_name_field_name = "",
+    const std::string& compression = "",
+    const std::vector<int>& rgb_bands_map = {});
 
 }  // namespace mosaicking
 }  // namespace rs_toolset

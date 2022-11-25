@@ -1,5 +1,5 @@
-#ifndef RS_TOOLSET_SRC_CORE_MOSAICKING_MOSAICKING_CONTAINER_H_
-#define RS_TOOLSET_SRC_CORE_MOSAICKING_MOSAICKING_CONTAINER_H_
+#ifndef RS_TOOLSET_SRC_CORE_MOSAICKING_SERIAL_CONTAINER_H_
+#define RS_TOOLSET_SRC_CORE_MOSAICKING_SERIAL_CONTAINER_H_
 
 #include <memory>
 #include <string>
@@ -14,20 +14,19 @@
 namespace rs_toolset {
 namespace mosaicking {
 
-class MosaickingContainerImpl final : public MosaickingContainer {
+class SerialContainerImpl final : public SerialContainer {
  public:
-  explicit MosaickingContainerImpl(
+  explicit SerialContainerImpl(
       const std::shared_ptr<MosaickingInterface>& mosaicking,
       OGRSpatialReference* spatial_ref,
-      double rejection_ratio,
       const std::shared_ptr<color_balancing::ColorBalancingInterface>&
           color_balancing);
-  MosaickingContainerImpl(const MosaickingContainerImpl&) = delete;
-  MosaickingContainerImpl& operator=(const MosaickingContainerImpl&) = delete;
-  virtual ~MosaickingContainerImpl();
+  SerialContainerImpl(const SerialContainerImpl&) = delete;
+  SerialContainerImpl& operator=(const SerialContainerImpl&) = delete;
+  virtual ~SerialContainerImpl();
 
   /**
-   * @brief Initialize the mosaicking container by the external composite table
+   * @brief Initialize the serial container by the external composite table
    * @param[in] composite_tabel_layer The external composite tabel layer
    * @param[in] rasters_dir The rasters' directory corresponding to the external composite table
   */
@@ -41,17 +40,23 @@ class MosaickingContainerImpl final : public MosaickingContainer {
 
   bool AddTask(
       const std::string& path,
-      int low_overview_trunc,
-      int high_overview_trunc,
+      int low_overviews_trunc,
+      int high_overviews_trunc,
+      double surrounded_buffer,
+      double rejection_ratio,
+      bool anti_surrounded,
       const std::vector<int>& rgb_bands_map) override;
 
-  GDALDatasetUniquePtr ExportCompositeTable(
+  GDALDatasetUniquePtr ExportMosaickingVector(
       const std::string& output_path,
       const std::string& query_path,
-      const std::string& query_rasters_name_field_name,
-      bool with_extension) override;
+      const std::string& query_raster_name_field_name,
+      bool extension) override;
 
-  std::vector<std::string> ExportAllRastersName() override;
+  GDALDatasetUniquePtr ExportBorderVector(
+      const std::string& output_path) override;
+
+  std::vector<std::string> ExportAllRastersPath() override;
 
  private:
   std::shared_ptr<MosaickingInterface> mosaicking_;
@@ -64,10 +69,9 @@ class MosaickingContainerImpl final : public MosaickingContainer {
   OGRGeometry* covered_border_;  // type is OGRMultiPolygon
 
   std::vector<double> borders_area_;
-  double rejection_ratio_;
 };
 
 }  // namespace mosaicking
 }  // namespace rs_toolset
 
-#endif  // RS_TOOLSET_SRC_CORE_MOSAICKING_MOSAICKING_CONTAINER_H_
+#endif  // RS_TOOLSET_SRC_CORE_MOSAICKING_SERIAL_CONTAINER_H_

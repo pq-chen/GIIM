@@ -91,12 +91,10 @@ GDALDatasetUniquePtr RoadDeformationDetection::Run(
   }
   auto rpc_info_text(utils::LoadRPBFile(rpb_path));
   GDALRPCInfo rpc_info;
-  if (!GDALExtractRPCInfo(rpc_info_text, &rpc_info)) {
-    CSLDestroy(rpc_info_text);
+  if (!GDALExtractRPCInfo(rpc_info_text.get(), &rpc_info)) {
     spdlog::warn("Extracting RPC information failed");
     return nullptr;
   }
-  CSLDestroy(rpc_info_text);
   auto driver(utils::GetVectorDriverByPath(output_path));
   if (!driver) {
     spdlog::warn("Finding the driver for {} failed", output_path);

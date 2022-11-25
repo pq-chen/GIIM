@@ -59,7 +59,7 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       cv::Mat& new_mat,
       cv::Mat& label_mat) override;
 
-  void ExecuteMosaicking(
+  bool ExecuteMosaicking(
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
       const cv::Mat& label_mat,
@@ -67,7 +67,9 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       OGRSpatialReference* spatial_ref,
       GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& label0_geometry,
-      OGRGeometryUniquePtr& label1_geometry) override;
+      OGRGeometryUniquePtr& label1_geometry,
+      bool swap,
+      int subtasks_count) override;
 
   cv::Mat CreateLightnessMat(GDALDataset* dataset);
 

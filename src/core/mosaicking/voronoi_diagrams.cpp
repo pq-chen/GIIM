@@ -26,8 +26,8 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
     const std::string& output_path,
     OGRSpatialReference* spatial_ref,
     bool with_refinement,
-    int low_overview_trunc,
-    int high_overview_trunc,
+    int low_overviews_trunc,
+    int high_overviews_trunc,
     const std::vector<int>& rgb_bands_map,
     const std::shared_ptr<color_balancing::ColorBalancingInterface>&
         color_balancing) {
@@ -51,7 +51,7 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
   }
   spdlog::info(
       string, output_path, spatial_ref->GetName(), with_refinement,
-      low_overview_trunc, high_overview_trunc);
+      low_overviews_trunc, high_overviews_trunc);
   double geotrans[6];
   for (const auto& path : rasters_path) {
     if (GDALDatasetUniquePtr dataset(GDALDataset::Open(
@@ -86,10 +86,10 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
     spdlog::error("No mosaicking can be used for the seamline refinement");
     return nullptr;
   }
-  if (low_overview_trunc < 0 || high_overview_trunc < 0) {
+  if (low_overviews_trunc < 0 || high_overviews_trunc < 0) {
     spdlog::error(
         "The low overview trunction {} and the high overview trunction {} "
-        "must be non-negative", low_overview_trunc, high_overview_trunc);
+        "must be non-negative", low_overviews_trunc, high_overviews_trunc);
     return nullptr;
   }
   string = "The following raster(s) will be operated:\n";
@@ -150,6 +150,7 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
         output_layer->GetLayerDefn()));
     feature->SetGeometryDirectly(geometry->Intersection(rect.get()));
     feature->SetField(0, rasters_path[i].c_str());
+    feature->SetFID(output_layer->GetFeatureCount());
     output_layer->CreateFeature(feature.get());
   }
   spdlog::info("Running the voronoi diagrams algorithm - done");
@@ -239,7 +240,7 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
     for (int j(i + 1); j < rasters_count; ++j) {
       if (OGRFeatureUniquePtr feature2(output_layer->GetFeature(j));
           feature1->GetGeometryRef()->Intersect(feature2->GetGeometryRef())) {
-        neighbor_pairs.push_back({i, j});
+        neighbor_pairs.emplace_back(i, j);
       }
     }
   }
@@ -247,8 +248,8 @@ GDALDatasetUniquePtr VoronoiDiagramsImpl::Run(
   // Refine seamlines in the initial mosaicking network if the mosaicking is given
   if (with_refinement)
     RefineSeamlines(
-        rasters_path, borders, neighbor_pairs, low_overview_trunc,
-        high_overview_trunc, rgb_bands_map, color_balancing, output_layer);
+        rasters_path, borders, neighbor_pairs, low_overviews_trunc,
+        high_overviews_trunc, rgb_bands_map, color_balancing, output_layer);
 
   for (auto& feature : output_layer) {
     feature->SetField(
@@ -263,8 +264,8 @@ void VoronoiDiagramsImpl::RefineSeamlines(
     const std::vector<std::string>& paths,
     const std::vector<OGRGeometryUniquePtr>& borders,
     const std::vector<std::pair<int, int>>& neighbor_pairs,
-    int low_overview_trunc,
-    int high_overview_trunc,
+    int low_overviews_trunc,
+    int high_overviews_trunc,
     const std::vector<int>& rgb_bands_map,
     const std::shared_ptr<color_balancing::ColorBalancingInterface>&
         color_balancing,
@@ -299,8 +300,8 @@ void VoronoiDiagramsImpl::RefineSeamlines(
     auto idx1(neighbor_pairs[i].first), idx2(neighbor_pairs[i].second);
     seamlines[i] = mosaicking_->RunTaskForPair(
         paths[idx1], paths[idx2], borders[idx1].get(), borders[idx2].get(),
-        geometries[idx1].get(), geometries[idx2].get(), low_overview_trunc,
-        high_overview_trunc, rgb_bands_map, color_balancing,
+        geometries[idx1].get(), geometries[idx2].get(), low_overviews_trunc,
+        high_overviews_trunc, rgb_bands_map, color_balancing,
         color_balancing_idxes[idx1], color_balancing_idxes[idx2]);
 #pragma omp critical
     {

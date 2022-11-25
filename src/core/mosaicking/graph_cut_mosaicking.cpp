@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <list>
 #include <map>
 #include <memory>
 #include <vector>
@@ -61,7 +62,7 @@ void GraphCutImpl::PrepareData(
   spdlog::debug("Preparing the data - done");
 }
 
-void GraphCutImpl::ExecuteMosaicking(
+bool GraphCutImpl::ExecuteMosaicking(
     const cv::Mat& covered_mat,
     const cv::Mat& new_mat,
     const cv::Mat& label_mat,
@@ -69,7 +70,9 @@ void GraphCutImpl::ExecuteMosaicking(
     OGRSpatialReference* spatial_ref,
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& label0_geometry,
-    OGRGeometryUniquePtr& label1_geometry) {
+    OGRGeometryUniquePtr& label1_geometry,
+    bool swap,
+    int subtasks_count) {
   spdlog::debug("Execute the graph cut mosaicking algorithm");
 
   // Create maps between coors and valid indexes
@@ -92,7 +95,7 @@ void GraphCutImpl::ExecuteMosaicking(
           continue;
         }
       }
-      idx_to_coor.push_back({row, col});
+      idx_to_coor.emplace_back(row, col);
       ++count;
     }
   }
@@ -185,37 +188,64 @@ void GraphCutImpl::ExecuteMosaicking(
 
   // Find label geometries among polygonized features
   spdlog::debug("Finding label geometries among polygonized features");
-  std::pair label0_max_idx(-1, -1.0), label1_max_idx(-1, -1.0);
+  std::list<std::pair<OGRGeometryUniquePtr, double>> label0_geometries;
+  std::pair<OGRGeometryUniquePtr, double> label1_max_geometry(nullptr, -1.0);
   for (int i(0); i < polygonized_layer->GetFeatureCount(); ++i) {
     OGRFeatureUniquePtr feature(polygonized_layer->GetFeature(i));
     switch (auto area(feature->GetGeometryRef()->toPolygon()->get_Area());
         feature->GetFieldAsInteger(0)) {
       case 100: {
-        if (area > label0_max_idx.second)
-          label0_max_idx = {i, area};
+        auto it(label0_geometries.begin());
+        while (it != label0_geometries.end() && area > it->second) {
+          it++;
+        }
+        label0_geometries.insert(
+            it, {OGRGeometryUniquePtr(feature->StealGeometry()), area});
+        if (auto count(label0_geometries.size());
+            count != 1 && count > subtasks_count) {
+          label0_geometries.pop_front();
+        }
         break;
       }
       case 200: {
-        if (area > label1_max_idx.second)
-          label1_max_idx = {i, area};
+        if (area > label1_max_geometry.second) {
+          label1_max_geometry.first.reset(feature->StealGeometry());
+          label1_max_geometry.second = area;
+        }
       }
     }
   }
-  OGRFeatureUniquePtr 
-      feature0(polygonized_layer->GetFeature(label0_max_idx.first)),
-      feature1(polygonized_layer->GetFeature(label1_max_idx.first));
-  label0_geometry.reset(feature0->StealGeometry());
-  auto _label0_geometry(label0_geometry->toPolygon());
-  for (int i(0); i < _label0_geometry->getNumInteriorRings(); ++i)
-    _label0_geometry->removeRing(i + 1);
-  label1_geometry.reset(feature1->StealGeometry());
-  label1_geometry.reset(label0_geometry->Union(label1_geometry.get()));
-  auto _label1_geometry(label1_geometry->toPolygon());
-  for (int i(0); i < _label1_geometry->getNumInteriorRings(); ++i)
-    _label1_geometry->removeRing(i + 1);
-  label1_geometry.reset(label1_geometry->Difference(label0_geometry.get()));
+  if (label0_geometries.empty() || !label1_max_geometry.first) return false;
+
+  label1_geometry = std::move(label1_max_geometry.first);
+  if (swap)
+    label0_geometries.front().first.swap(label1_geometry);
+  for (auto it(label0_geometries.rbegin()); it != label0_geometries.rend();
+      it++) {
+    auto _label0_geometry(it->first->toPolygon());
+    for (int i(_label0_geometry->getNumInteriorRings() - 1); i >= 0; --i)
+      _label0_geometry->removeRing(i + 1);
+    label1_geometry.reset(it->first->Union(label1_geometry.get()));
+    auto _label1_geometry(label1_geometry->toPolygon());
+    for (int i(_label1_geometry->getNumInteriorRings() - 1); i >= 0; --i)
+      _label1_geometry->removeRing(i + 1);
+    label1_geometry.reset(label1_geometry->Difference(it->first.get()));
+  }
+  if (swap)
+    label0_geometries.front().first.swap(label1_geometry);
+  if (subtasks_count == 0) {
+    label0_geometry = std::move(label0_geometries.front().first);
+  } else {
+    label0_geometry.reset(new OGRMultiPolygon);
+    for (auto it(label0_geometries.rbegin()); it != label0_geometries.rend();
+        it++) {
+      label0_geometry->toMultiPolygon()->addGeometryDirectly(
+          it->first.release());
+    }
+  }
   spdlog::debug("Finding label geometries among polygonized features - done");
   spdlog::debug("Execute the graph cut mosaicking algorithm - done");
+  return true;
 }
 
 cv::Mat GraphCutImpl::CreateLightnessMat(GDALDataset* dataset) {

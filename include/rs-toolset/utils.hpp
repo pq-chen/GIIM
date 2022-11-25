@@ -196,7 +196,7 @@ inline void CalcInterpolations(
  * @brief Create a border from the given raster dataset
  * @param[in] dataset The given raster dataset
  * @param[in] spatial_ref Transform the border into the given spatial reference
- * @param[in] downsample_factor The downsample factor on the raster dataset, default is 4
+ * @param[in] overview_idx The overview index on the raster dataset, default is 1. Negative means the original size and out of range means the last overview
  * @param[in] buffer The buffer distance in pixels, default is -2.0
  * @param[in] tol The tolerance in pixels for simplifying the border. default is 1.5
  * @return The output border
@@ -204,9 +204,25 @@ inline void CalcInterpolations(
 RS_TOOLSET_API OGRGeometryUniquePtr CreateBorder(
     GDALDataset* dataset,
     OGRSpatialReference* spatial_ref = nullptr,
-    int downsample_factor = 4,
+    int overview_idx = 1,
     double buffer = -2.0,
     double tol = 1.5);
+
+/**
+ * @brief Create an unique pointer for the given CPL string
+ * @param string_list The given CPL string
+ * @return The output unique pointer 
+*/
+RS_TOOLSET_API std::unique_ptr<char, void(*)(char*)> CreateCplString(
+    char* string);
+
+/**
+ * @brief Create an unique pointer for the given CSL string list
+ * @param string_list The given CSL string list
+ * @return The output unique pointer 
+*/
+RS_TOOLSET_API std::unique_ptr<char*, void(*)(char**)> CreateCslStringList(
+    char** string_list);
 
 /**
  * @brief Create a raster dataset from the given mat
@@ -257,12 +273,12 @@ RS_TOOLSET_API cv::Mat CreateHistMatchingLut(
 /**
  * @brief Create a mask raster dataset from the given raster band
  * @param[in] raster_band The given raster band
- * @param[in] downsample_factor The downsample factor on the raster band, default is 4
+ * @param[in] overview_idx The overview index on the raster dataset, default is 1. Negative means the original size and out of range means the last overview
  * @return The output mask raster dataset
 */
 RS_TOOLSET_API GDALDatasetUniquePtr CreateMaskDataset(
     GDALRasterBand* raster_band,
-    int downsample_factor = 4);
+    int overview_idx = 1);
 
 /**
  * @brief Create a mat from the given raster dataset
@@ -277,6 +293,16 @@ RS_TOOLSET_API cv::Mat CreateMatFromDataset(
     int* range = nullptr,
     int bands_count = 0,
     int* bands_map = nullptr);
+
+/**
+ * @brief Create a mat from the given raster band
+ * @param[in] raster_band The given raster bands
+ * @param[in] range The output range, default is nullptr means the full range
+ * @return The output mat
+*/
+RS_TOOLSET_API cv::Mat CreateMatFromRasterBand(
+    GDALRasterBand* raster_band,
+    int* range = nullptr);
 
 /**
  * @brief Joint the given OGRMultiLineString into a OGRLineString
@@ -343,6 +369,13 @@ RS_TOOLSET_API RPCTransPtr CreateRPCTrans(
 RS_TOOLSET_API int DateMatching(const std::string& string);
 
 /**
+ * @brief Extract the biggest polygon in the given geometry
+ * @param[in,out] geometry The given geometry which must be OGRMultiPolygon
+ * @return Running state
+*/
+RS_TOOLSET_API bool ExtractBiggestPolygon(OGRGeometryUniquePtr& geometry);
+
+/**
  * @brief Create a string of the current date
  * @return The output string
 */
@@ -351,9 +384,12 @@ RS_TOOLSET_API std::string GetDate();
 /**
  * @brief Get the corresonding raster driver pointer from the given path
  * @param[in] path The given path
+ * @param[in] Compression Check the compression method if not empty
  * @return The corresonding raster driver pointer
 */
-RS_TOOLSET_API GDALDriver* GetRasterDriverByPath(const std::string& path);
+RS_TOOLSET_API GDALDriver* GetRasterDriverByPath(
+    const std::string& path,
+    const std::string& compression = "");
 
 /**
  * @brief Get the corresonding vector driver pointer from the given path
@@ -391,11 +427,12 @@ RS_TOOLSET_API void InitSpdlog(
     spdlog::level::level_enum level = spdlog::level::info);
 
 /**
- * @brief Load RPC informaiton from the given RPB file into a RPC string list
+ * @brief Load RPC informaiton from the given RPB file into a string list unique pointer
  * @param[in] rpb_path The given RPB file path
- * @return The output RPC string list
+ * @return The output string list unique pointer
 */
-RS_TOOLSET_API char** LoadRPBFile(const std::string& rpb_path);
+RS_TOOLSET_API std::unique_ptr<char*, void(*)(char**)> LoadRPBFile(
+    const std::string& rpb_path);
 
 /**
  * @brief Map the given source mat with the LUT mat
@@ -419,7 +456,7 @@ RS_TOOLSET_API void RearrangeNeighborGeometries(
     OGRGeometryUniquePtr& geometry2);
 
 /**
- * @brief Warp source datasets to the output dataset using the given geometries as cutlines
+ * @brief Warp source datasets to the output dataset using the given geometries as cutlines. This method does not use overviews
  * @param[in] source_datasets The source datasets
  * @param[in] geometries The given geometries
  * @param[in,out] output_dataset The output dataset
@@ -431,6 +468,26 @@ RS_TOOLSET_API void RearrangeNeighborGeometries(
 */
 RS_TOOLSET_API bool WarpByGeometry(
     const std::vector<GDALDataset*>& source_datasets,
+    const std::vector<OGRGeometry*>& geometries,
+    GDALDatasetUniquePtr& output_dataset,
+    const std::vector<int>& bands_map = {},
+    GDALResampleAlg resample_arg = GRA_Bilinear,
+    double blend_dist = 0.0,
+    double nodata_value = 0.0);
+
+/**
+ * @brief Warp source datasets to the output dataset using the given geometries as cutlines. This method uses overviews as possible
+ * @param[in] source_paths The source paths
+ * @param[in] geometries The given geometries
+ * @param[in,out] output_dataset The output dataset
+ * @param[in] bands_map The bands' map, default is empty means all bands
+ * @param[in] resample_arg The output resample argument, default is GRA_Bilinear
+ * @param[in] blend_dist The output blend distance, default is 0.0
+ * @param[in] nodata_value The output nodata value, default is 0.0
+ * @return Running state
+*/
+RS_TOOLSET_API bool WarpByGeometry(
+    const std::vector<std::string>& source_paths,
     const std::vector<OGRGeometry*>& geometries,
     GDALDatasetUniquePtr& output_dataset,
     const std::vector<int>& bands_map = {},
