@@ -32,8 +32,8 @@ bool RunTaskForSerialCheck(
     OGRLayer* border_layer,
     OGRGeometry* covered_border,
     std::vector<double>& borders_area,
-    int low_overviews_trunc,
-    int high_overviews_trunc,
+    int& low_overviews_trunc,
+    int& high_overviews_trunc,
     double surrounded_buffer,
     double rejection_ratio,
     const std::vector<int>& rgb_bands_map,
@@ -71,7 +71,7 @@ bool RunTaskForSerialCheck(
   if (covered_border->getGeometryType() != wkbMultiPolygon) {
     spdlog::error(
         "The \"covered_border\" geometry type {} must be 6(wkbMultiPolygon)",
-        covered_border->getGeometryType());
+        int(covered_border->getGeometryType()));
     return false;
   }
   if (borders_area.size() != border_layer->GetFeatureCount()) {
@@ -281,7 +281,7 @@ bool MosaickingBase::RunTaskForSerial(
             overlap_geotrans, covered_overlap_dataset.get(),
             new_overlap_dataset.get(), label_raster_dataset,
             covered_overlap_geometries[j], new_overlap_geometries[j],
-            status == Status::ANTI_SURROUNDED, subtasks_count);
+            true, status == Status::ANTI_SURROUNDED, subtasks_count);
         std::vector<std::pair<OGRGeometryUniquePtr, OGRGeometryUniquePtr>>
             subtasks;
         for (const auto& polygon :
@@ -320,7 +320,7 @@ bool MosaickingBase::RunTaskForSerial(
             if (!CreateSeamlines(
                     overlap_geotrans, covered_overlap_dataset.get(),
                     new_overlap_dataset.get(), sub_label_raster_dataset,
-                    subtask.first, subtask.second,
+                    subtask.first, subtask.second, false,
                     status == Status::ANTI_SURROUNDED)) {
               valid_task = false;
               break;
@@ -393,8 +393,8 @@ bool MosaickingBase::RunTaskForSerial(
           }
           case Status::ANTI_SURROUNDED: {
             source_borders[j] = std::move(new_geometry);
-            for (auto j(mosaicking_layer->GetFeatureCount() - 1); j >= 0; --j) {
-              OGRFeatureUniquePtr feature(mosaicking_layer->GetFeature(j));
+            for (auto k(mosaicking_layer->GetFeatureCount() - 1); k >= 0; --k) {
+              OGRFeatureUniquePtr feature(mosaicking_layer->GetFeature(k));
               if (auto geometry(feature->GetGeometryRef());
                   covered_geometry->Intersect(geometry)) {
                 feature->SetGeometryDirectly(geometry->Difference(
@@ -402,16 +402,16 @@ bool MosaickingBase::RunTaskForSerial(
                 mosaicking_layer->SetFeature(feature.get());
               } else if (source_borders[j]->Contains(geometry)) {
                 auto last_fid(mosaicking_layer->GetFeatureCount() - 1);
-                mosaicking_layer->DeleteFeature(j);
-                border_layer->DeleteFeature(j);
-                borders_area.erase(borders_area.begin() + j);
-                if (j != last_fid) {
+                mosaicking_layer->DeleteFeature(k);
+                border_layer->DeleteFeature(k);
+                borders_area.erase(borders_area.begin() + k);
+                if (k != last_fid) {
                   feature.reset(mosaicking_layer->GetFeature(last_fid));
-                  feature->SetFID(j);
+                  feature->SetFID(k);
                   mosaicking_layer->DeleteFeature(last_fid);
                   mosaicking_layer->SetFeature(feature.get());
                   feature.reset(border_layer->GetFeature(last_fid));
-                  feature->SetFID(j);
+                  feature->SetFID(k);
                   border_layer->DeleteFeature(last_fid);
                   border_layer->SetFeature(feature.get());
                 }
@@ -767,7 +767,7 @@ bool MosaickingBase::InitializeOverlapGeometries(
         covered_overlap_geometries.emplace_back(geometry->Buffer(
             20 * factor * geotrans[1]));
         new_overlap_geometries.emplace_back(
-            covered_overlap_geometries[0]->clone());
+          covered_overlap_geometries[0]->clone());
         break;
       }
       case wkbMultiPolygon: {
@@ -997,12 +997,13 @@ bool MosaickingBase::CreateSeamlines(
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& covered_overlap_geometry,
     OGRGeometryUniquePtr& new_overlap_geometry,
+    bool connection_analysis,
     bool swap,
     int subtasks_count) {
   cv::Mat covered_mat, new_mat, label_mat;
   PrepareData(
       covered_overlap_dataset, new_overlap_dataset, label_raster_dataset.get(),
-      covered_mat, new_mat, label_mat);
+      covered_mat, new_mat, label_mat, connection_analysis);
   return ExecuteMosaicking(
       covered_mat, new_mat, label_mat, geotrans,
       const_cast<OGRSpatialReference*>(new_overlap_dataset->GetSpatialRef()),
@@ -1098,8 +1099,8 @@ bool MosaickingBase::UpdateMediums(
         geometry1.reset(geometry1->Buffer(buffer_at_end * geotrans[1]));
         geometry2.reset(geometry2->Buffer(buffer_at_end * geotrans[1]));
       }
-      if (geometry1->toPolygon()->getNumInteriorRings() == 0 &&
-          geometry2->toPolygon()->getNumInteriorRings() == 0) {
+      if (!overlap || (geometry1->toPolygon()->getNumInteriorRings() == 0 &&
+          geometry2->toPolygon()->getNumInteriorRings() == 0)) {
         covered_overlap_geometry.swap(geometry1);
         new_overlap_geometry.swap(geometry2);
         spdlog::debug("Updating the overlap geometries - done");

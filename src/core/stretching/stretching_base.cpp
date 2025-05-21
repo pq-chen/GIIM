@@ -33,8 +33,10 @@ bool StretchingBase::Run(std::vector<cv::Mat>& mats) {
     return false;
   }
   
-  cv::Mat mask;
-  mats[0].convertTo(mask, CV_8UC1);
+  cv::Mat mask = cv::Mat::zeros(mats[0].size(), CV_8UC1);
+  for (int i = 0; i < bands_count_; ++i) {
+    mask.setTo(1, mats[i] != 0);
+  }
   cv::threshold(mask, mask, 0, 1, cv::THRESH_BINARY);
   for (int b(0); b < bands_count_; ++b) {
     cv::Mat mat(mats[b].size(), CV_8UC1);

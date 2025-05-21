@@ -159,6 +159,7 @@ class MosaickingBase : virtual public MosaickingInterface {
       GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& covered_overlap_geometry,
       OGRGeometryUniquePtr& new_overlap_geometry,
+      bool connection_analysis = false,
       bool swap = false,
       int subtasks_count = 0);
 
@@ -199,7 +200,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       GDALDataset* label_raster_dataset,
       cv::Mat& covered_mat,
       cv::Mat& new_mat,
-      cv::Mat& label_mat) = 0;
+      cv::Mat& label_mat,
+      bool connection_analysis) = 0;
 
   /**
    * @brief Execute the mosaicking algorithm

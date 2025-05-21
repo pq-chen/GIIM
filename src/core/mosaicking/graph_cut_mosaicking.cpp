@@ -50,13 +50,77 @@ void GraphCutImpl::PrepareData(
     GDALDataset* label_raster_dataset,
     cv::Mat& covered_mat,
     cv::Mat& new_mat,
-    cv::Mat& label_mat) {
+    cv::Mat& label_mat,
+    bool connection_analysis) {
   spdlog::debug("Preparing the data");
   covered_mat = CreateLightnessMat(covered_overlap_dataset);
   new_mat = CreateLightnessMat(new_overlap_dataset);
+  if (connection_analysis) {
+    cv::Mat binary_new, binary_covered, labels, stats, centroids;
+    cv::threshold(covered_mat, binary_covered, 0, 1, cv::THRESH_BINARY);
+    cv::threshold(new_mat, binary_new, 0, 1, cv::THRESH_BINARY);
+    int n = cv::connectedComponentsWithStats((binary_covered + binary_new) == 1, labels, stats, centroids, 4);
+
+    for (int i = 1; i < n; ++i) {
+      int area = stats.at<int>(i, cv::CC_STAT_AREA);
+      if (area < 10) {
+        covered_mat.setTo(0, labels == i);
+        new_mat.setTo(0, labels == i);
+      }
+    }
+  }
+
   if (label_raster_dataset) {
     label_mat = utils::CreateMatFromDataset(label_raster_dataset);
   } else {
+    //auto dataset = utils::GetVectorDriverByPath("")->Create("", 0, 0, 0, GDT_Unknown, nullptr);
+    //auto layer = dataset->CreateLayer(nullptr, nullptr, wkbPolygon);
+    //OGRFieldDefn oField("DN", OFTInteger);
+    //layer->CreateField(&oField);
+    //double geotrans[6];
+    //geotrans[1] = 0.0000183908;
+    //geotrans[4] = 0.0;
+    //geotrans[2] = 0.0;
+    //geotrans[5] = -0.0000183908;
+    //geotrans[0] = 113.4533819771;
+    //geotrans[3] = 23.0954685444;
+    //cv::Mat mat0 = cv::imread(R"(D:\BaiduNetdiskDownload\GaoFen-2-7357-7358\Output\mask0.bmp)", cv::IMREAD_GRAYSCALE);
+    //auto dataset0 = utils::CreateDatasetFromMat(mat0, "", geotrans, nullptr, 0, nullptr);
+    //GDALPolygonize(dataset0->GetRasterBand(1), nullptr, layer, 0, nullptr, nullptr, nullptr);
+    //OGRGeometry* geo1(nullptr);
+    //for (const auto& feature : layer) {
+    //  if (feature->GetFieldAsInteger("DN") == 255) {
+    //    geo1 = feature->GetGeometryRef()->clone();
+    //  }
+    //}
+    //cv::Mat mat1 = cv::imread(R"(D:\BaiduNetdiskDownload\GaoFen-2-7357-7358\Output\mask1.bmp)", cv::IMREAD_GRAYSCALE);
+    //auto dataset1 = utils::CreateDatasetFromMat(mat1, "", geotrans, nullptr, 0, nullptr);
+    //GDALPolygonize(dataset1->GetRasterBand(1), nullptr, layer, 0, nullptr, nullptr, nullptr);
+    //OGRGeometry* geo2(nullptr);
+    //for (const auto& feature : layer) {
+    //  if (feature->GetFieldAsInteger("DN") == 255) {
+    //    geo2 = feature->GetGeometryRef()->clone();
+    //  }
+    //}
+    //auto dataset2 = GetGDALDriverManager()->GetDriverByName("MEM")->Create("", covered_overlap_dataset->GetRasterXSize(), covered_overlap_dataset->GetRasterYSize(), 1, GDT_Byte, nullptr);
+    //double _geotrans[6];
+    //covered_overlap_dataset->GetGeoTransform(_geotrans);
+    //dataset2->SetGeoTransform(_geotrans);
+    //dataset2->SetSpatialRef(covered_overlap_dataset->GetSpatialRef());
+    //auto s = GDALRasterizeGeometries(dataset2, 1, new int[1] {1}, 2, new OGRGeometryH[2]{ geo1, geo2 }, nullptr, nullptr, new double[2] {100.0, 200.0}, nullptr, nullptr, nullptr);
+    //label_mat = utils::CreateMatFromDataset(dataset2);
+
+    //auto dataset1(GDALDataset::Open(R"(C:\Users\LinKInLeLe43\Desktop\Experiments\GaoFen-2\pair_wise\GIIM\giim-7358-5770_2x.shp)", GDAL_OF_VECTOR | GDAL_OF_READONLY));
+    //auto layer1 = dataset1->GetLayer(0);
+    //auto geo1 = layer1->GetNextFeature()->GetGeometryRef();
+    //auto geo2 = layer1->GetNextFeature()->GetGeometryRef();
+    //auto dataset2 = GetGDALDriverManager()->GetDriverByName("MEM")->Create("", covered_overlap_dataset->GetRasterXSize(), covered_overlap_dataset->GetRasterYSize(), 1, GDT_Byte, nullptr);
+    //double geotrans[6];
+    //covered_overlap_dataset->GetGeoTransform(geotrans);
+    //dataset2->SetGeoTransform(geotrans);
+    //dataset2->SetSpatialRef(covered_overlap_dataset->GetSpatialRef());
+    //auto s = GDALRasterizeGeometries(dataset2, 1, new int[1] {1}, 2, new OGRGeometryH[2]{ geo1, geo2 }, nullptr, nullptr, new double[2] {100.0, 200.0}, nullptr, nullptr, nullptr);
+    //label_mat = utils::CreateMatFromDataset(dataset2);
     label_mat = cv::Mat::zeros(new_mat.size(), CV_8UC1);
   }
   spdlog::debug("Preparing the data - done");
@@ -159,7 +223,8 @@ bool GraphCutImpl::ExecuteMosaicking(
       covered_mat, covered_x_mat, covered_y_mat, new_mat, new_x_mat, new_y_mat,
       &idx_to_coor};
   gco->SetSmoothCost(SmoothCost, &data);
-  gco->Expansion(2);
+  //std::cout << gco->ComputeSmoothEnergy() << std::endl;
+  gco->Expansion(1);
   spdlog::debug("Running the graph cut optimization algorithm - done");
 
   // Update the label raster
@@ -256,6 +321,23 @@ cv::Mat GraphCutImpl::CreateLightnessMat(GDALDataset* dataset) {
   std::vector<cv::Mat> lab_mats;
   cv::split(lab_mat, lab_mats);
   return lab_mats[0];
+  //cv::Mat L, gray, hsv, weighted;
+  //cv::cvtColor(bgr_mat, gray, cv::COLOR_BGR2GRAY);
+  //gray = 100 * gray;
+  //cv::cvtColor(bgr_mat, hsv, cv::COLOR_BGR2HSV);
+  //std::vector<cv::Mat> hsv_mats;
+  //cv::split(hsv, hsv_mats);
+  //weighted = 5 * hsv_mats[1] + 95 * hsv_mats[2];
+  //return gray;
+
+  //int bands_map[3]{ 3, 2, 1 };
+  //auto bgr_mat(utils::CreateMatFromDataset(dataset, nullptr, 3, bands_map));
+  //bgr_mat.convertTo(bgr_mat, CV_32FC3, 1.0 / 255);
+  //cv::cvtColor(bgr_mat, bgr_mat, cv::COLOR_BGR2GRAY);
+  //std::vector<cv::Mat> lab_mats;
+  //cv::split(bgr_mat, lab_mats);
+  //return 100 * bgr_mat;
+  //return L;
 }
 
 int GraphCutImpl::SmoothCost(
@@ -298,6 +380,8 @@ int GraphCutImpl::SmoothCost(
       grad_value1 = _data->covered_x_mat.at<float>(min_row, min_col);
       grad_value2 = _data->new_x_mat.at<float>(min_row, min_col);
     }
+    //grad_value1 = (_data->covered_y_mat.at<float>(row1, col1) + _data->covered_y_mat.at<float>(row2, col2) + _data->covered_x_mat.at<float>(row1, col1) + _data->covered_x_mat.at<float>(row2, col2)) / 2;
+    //grad_value2 = (_data->new_y_mat.at<float>(row1, col1) + _data->new_y_mat.at<float>(row2, col2) + _data->new_x_mat.at<float>(row1, col1) + _data->new_x_mat.at<float>(row2, col2)) / 2;
     grad_self_term = pow(
         fmin(
             fmax(fmax(grad_value1, grad_value2), _data->grad_self_low),

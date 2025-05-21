@@ -57,7 +57,8 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
       GDALDataset* label_raster_dataset,
       cv::Mat& covered_mat,
       cv::Mat& new_mat,
-      cv::Mat& label_mat) override;
+      cv::Mat& label_mat,
+      bool connection_analysis) override;
 
   bool ExecuteMosaicking(
       const cv::Mat& covered_mat,
