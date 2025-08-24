@@ -43,9 +43,11 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
     float diff_low;
     float diff_exp;
     cv::Mat covered_mat;
+    cv::Mat covered_mask_mat;
     cv::Mat covered_x_mat;
     cv::Mat covered_y_mat;
     cv::Mat new_mat;
+    cv::Mat new_mask_mat;
     cv::Mat new_x_mat;
     cv::Mat new_y_mat;
     std::vector<std::pair<int, int>>* idx_to_coor;
@@ -54,15 +56,21 @@ class GraphCutImpl final : public MosaickingBase, public GraphCut {
   void PrepareData(
       GDALDataset* covered_overlap_dataset,
       GDALDataset* new_overlap_dataset,
+      GDALDataset* covered_mask_dataset,
+      GDALDataset* new_mask_dataset,
       GDALDataset* label_raster_dataset,
       cv::Mat& covered_mat,
       cv::Mat& new_mat,
+      cv::Mat& covered_mask_mat,
+      cv::Mat& new_mask_mat,
       cv::Mat& label_mat,
       bool connection_analysis) override;
 
   bool ExecuteMosaicking(
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
+      const cv::Mat& covered_mask_mat,
+      const cv::Mat& new_mask_mat,
       const cv::Mat& label_mat,
       double* geotrans,
       OGRSpatialReference* spatial_ref,

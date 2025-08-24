@@ -267,6 +267,8 @@ bool MosaickingBase::RunTaskForSerial(
         GDALDatasetUniquePtr
             covered_overlap_dataset(nullptr),
             new_overlap_dataset(nullptr),
+            covered_mask_dataset(nullptr),
+            new_mask_dataset(nullptr),
             label_raster_dataset(nullptr);
         spdlog::debug("Operating on the {} times downsampled overview", factor);
         CreateOverlapDatasets(
@@ -274,12 +276,12 @@ bool MosaickingBase::RunTaskForSerial(
             covered_overlap_geometries[j].get(),
             new_overlap_geometries[j].get(), color_balancing,
             color_balancing_idx, covered_overlap_dataset, new_overlap_dataset,
-            label_raster_dataset);
+            covered_mask_dataset, new_mask_dataset, label_raster_dataset);
         double overlap_geotrans[6];
         covered_overlap_dataset->GetGeoTransform(overlap_geotrans);
         CreateSeamlines(
             overlap_geotrans, covered_overlap_dataset.get(),
-            new_overlap_dataset.get(), label_raster_dataset,
+            new_overlap_dataset.get(), covered_mask_dataset.get(), new_mask_dataset.get(), label_raster_dataset,
             covered_overlap_geometries[j], new_overlap_geometries[j],
             true, status == Status::ANTI_SURROUNDED, subtasks_count);
         std::vector<std::pair<OGRGeometryUniquePtr, OGRGeometryUniquePtr>>
@@ -315,11 +317,11 @@ bool MosaickingBase::RunTaskForSerial(
                 factor, geotrans, new_rgb_bands_map, path, mosaicking_layer,
                 subtask.first.get(), subtask.second.get(), color_balancing,
                 color_balancing_idx, covered_overlap_dataset,
-                new_overlap_dataset, sub_label_raster_dataset);
+                new_overlap_dataset, covered_mask_dataset, new_mask_dataset, sub_label_raster_dataset);
             covered_overlap_dataset->GetGeoTransform(overlap_geotrans);
             if (!CreateSeamlines(
                     overlap_geotrans, covered_overlap_dataset.get(),
-                    new_overlap_dataset.get(), sub_label_raster_dataset,
+                    new_overlap_dataset.get(), covered_mask_dataset.get(), new_mask_dataset.get(), sub_label_raster_dataset,
                     subtask.first, subtask.second, false,
                     status == Status::ANTI_SURROUNDED)) {
               valid_task = false;
@@ -658,6 +660,8 @@ OGRGeometryUniquePtr MosaickingBase::RunTaskForPair(
   GDALDatasetUniquePtr
       overlap1_dataset(nullptr),
       overlap2_dataset(nullptr),
+      mask1_dataset(nullptr),
+      mask2_dataset(nullptr),
       label_raster_dataset(nullptr);
   for (int idx(overviews_count - 1 - low_overviews_trunc);
       idx >= high_overviews_trunc; --idx) {
@@ -670,7 +674,7 @@ OGRGeometryUniquePtr MosaickingBase::RunTaskForPair(
         overlap2_dataset, label_raster_dataset);
     overlap1_dataset->GetGeoTransform(overlap_geotrans);
     CreateSeamlines(
-        overlap_geotrans, overlap1_dataset.get(), overlap2_dataset.get(),
+        overlap_geotrans, overlap1_dataset.get(), overlap2_dataset.get(), mask1_dataset.get(), mask2_dataset.get(),
         label_raster_dataset, overlap1_geometry, overlap2_geometry);
     UpdateMediums(
         false, idx, idx == high_overviews_trunc, true, overlap_geotrans,
@@ -807,6 +811,8 @@ void MosaickingBase::CreateOverlapDatasets(
     int color_balancing_idx,
     GDALDatasetUniquePtr& covered_overlap_dataset,
     GDALDatasetUniquePtr& new_overlap_dataset,
+    GDALDatasetUniquePtr& covered_mask_dataset,
+    GDALDatasetUniquePtr& new_mask_dataset,
     GDALDatasetUniquePtr& label_raster_dataset) {
   spdlog::debug("Updating overlap datasets");
 
@@ -839,6 +845,14 @@ void MosaickingBase::CreateOverlapDatasets(
       "", range[2], range[3], 3, GDT_Byte, nullptr));
   new_overlap_dataset->SetGeoTransform(union_geotrans);
   new_overlap_dataset->SetSpatialRef(spatial_ref);
+  covered_mask_dataset.reset(mem_driver_->Create(
+    "", range[2], range[3], 1, GDT_Byte, nullptr));
+  covered_mask_dataset->SetGeoTransform(union_geotrans);
+  covered_mask_dataset->SetSpatialRef(spatial_ref);
+  new_mask_dataset.reset(mem_driver_->Create(
+    "", range[2], range[3], 1, GDT_Byte, nullptr));
+  new_mask_dataset->SetGeoTransform(union_geotrans);
+  new_mask_dataset->SetSpatialRef(spatial_ref);
 
   // Update the covered overlap dataset
   std::vector<int> color_balanced_rasters_idx;
@@ -871,6 +885,17 @@ void MosaickingBase::CreateOverlapDatasets(
     utils::WarpByGeometry(
         original_rasters_path, original_intersecting_geometries,
         covered_overlap_dataset, rgb_bands_map);
+    std::vector<std::string> masks_path;
+    for (const auto& path : original_rasters_path) {
+      fs::path p(source_raster_path);
+      auto mask_path = (p.parent_path() / (p.stem().string() + "_mask" + p.extension().string())).string();
+      if (fs::exists(mask_path)) {
+        masks_path.push_back(mask_path);
+      }
+    }
+    utils::WarpByGeometry(
+      { masks_path }, { new_overlap_geometry }, new_mask_dataset
+    );
   }
   for (auto& geometry : original_intersecting_geometries)
     OGRGeometryFactory::destroyGeometry(geometry);
@@ -886,6 +911,13 @@ void MosaickingBase::CreateOverlapDatasets(
     utils::WarpByGeometry(
         {source_raster_path}, {new_overlap_geometry}, new_overlap_dataset,
         rgb_bands_map);
+    fs::path p(source_raster_path);
+    auto mask_path = (p.parent_path() / (p.stem().string() + "_mask" + p.extension().string())).string();
+    if (fs::exists(mask_path)) {
+      utils::WarpByGeometry(
+        { mask_path }, { new_overlap_geometry }, new_mask_dataset
+      );
+    }
   }
   spdlog::debug("Updating the new overlap dataset - done");
 
@@ -994,18 +1026,20 @@ bool MosaickingBase::CreateSeamlines(
     double* geotrans,
     GDALDataset* covered_overlap_dataset,
     GDALDataset* new_overlap_dataset,
+    GDALDataset* covered_mask_dataset,
+    GDALDataset* new_mask_dataset,
     GDALDatasetUniquePtr& label_raster_dataset,
     OGRGeometryUniquePtr& covered_overlap_geometry,
     OGRGeometryUniquePtr& new_overlap_geometry,
     bool connection_analysis,
     bool swap,
     int subtasks_count) {
-  cv::Mat covered_mat, new_mat, label_mat;
+  cv::Mat covered_mat, new_mat, covered_mask_mat, new_mask_mat, label_mat;
   PrepareData(
-      covered_overlap_dataset, new_overlap_dataset, label_raster_dataset.get(),
-      covered_mat, new_mat, label_mat, connection_analysis);
+      covered_overlap_dataset, new_overlap_dataset, covered_mask_dataset, new_mask_dataset, label_raster_dataset.get(),
+      covered_mat, new_mat, covered_mask_mat, new_mask_mat, label_mat, connection_analysis);
   return ExecuteMosaicking(
-      covered_mat, new_mat, label_mat, geotrans,
+      covered_mat, new_mat, covered_mask_mat, new_mask_mat, label_mat, geotrans,
       const_cast<OGRSpatialReference*>(new_overlap_dataset->GetSpatialRef()),
       label_raster_dataset, covered_overlap_geometry, new_overlap_geometry,
       swap, subtasks_count);

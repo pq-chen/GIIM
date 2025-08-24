@@ -104,6 +104,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       int color_balancing_idx,
       GDALDatasetUniquePtr& covered_overlap_dataset,
       GDALDatasetUniquePtr& new_overlap_dataset,
+      GDALDatasetUniquePtr& covered_mask_dataset,
+      GDALDatasetUniquePtr& new_mask_dataset,
       GDALDatasetUniquePtr& label_raster_dataset);
 
   /**
@@ -156,6 +158,8 @@ class MosaickingBase : virtual public MosaickingInterface {
       double* geotrans,
       GDALDataset* covered_overlap_dataset,
       GDALDataset* new_overlap_dataset,
+      GDALDataset* covered_mask_dataset,
+      GDALDataset* new_mask_dataset,
       GDALDatasetUniquePtr& label_raster_dataset,
       OGRGeometryUniquePtr& covered_overlap_geometry,
       OGRGeometryUniquePtr& new_overlap_geometry,
@@ -197,9 +201,13 @@ class MosaickingBase : virtual public MosaickingInterface {
   virtual void PrepareData(
       GDALDataset* covered_overlap_dataset,
       GDALDataset* new_overlap_dataset,
+      GDALDataset* covered_mask_dataset,
+      GDALDataset* new_mask_dataset,
       GDALDataset* label_raster_dataset,
       cv::Mat& covered_mat,
       cv::Mat& new_mat,
+      cv::Mat& covered_mask_mat,
+      cv::Mat& new_mask_mat,
       cv::Mat& label_mat,
       bool connection_analysis) = 0;
 
@@ -221,6 +229,8 @@ class MosaickingBase : virtual public MosaickingInterface {
   virtual bool ExecuteMosaicking(
       const cv::Mat& covered_mat,
       const cv::Mat& new_mat,
+      const cv::Mat& covered_mask_mat,
+      const cv::Mat& new_mask_mat,
       const cv::Mat& label_mat,
       double* geotrans,
       OGRSpatialReference* spatial_ref,

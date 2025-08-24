@@ -47,9 +47,13 @@ GraphCutImpl::GraphCutImpl(
 void GraphCutImpl::PrepareData(
     GDALDataset* covered_overlap_dataset,
     GDALDataset* new_overlap_dataset,
+    GDALDataset* covered_mask_dataset,
+    GDALDataset* new_mask_dataset,
     GDALDataset* label_raster_dataset,
     cv::Mat& covered_mat,
     cv::Mat& new_mat,
+    cv::Mat& covered_mask_mat,
+    cv::Mat& new_mask_mat,
     cv::Mat& label_mat,
     bool connection_analysis) {
   spdlog::debug("Preparing the data");
@@ -69,7 +73,28 @@ void GraphCutImpl::PrepareData(
       }
     }
   }
-
+  if (covered_mask_dataset) {
+    covered_mask_mat = utils::CreateMatFromDataset(covered_mask_dataset);
+    if (covered_mask_mat.channels() > 1) {
+      std::vector<cv::Mat> mats;
+      cv::split(covered_mask_mat, mats);
+      covered_mask_mat = mats[0];
+    }
+  }
+  else {
+    new_mask_mat = cv::Mat::zeros(new_mat.size(), CV_8UC1);
+  }
+  if (new_mask_dataset) {
+    new_mask_mat = utils::CreateMatFromDataset(new_mask_dataset);
+    if (new_mask_mat.channels() > 1) {
+      std::vector<cv::Mat> mats;
+      cv::split(new_mask_mat, mats);
+      new_mask_mat = mats[0];
+    }
+  }
+  else {
+    new_mask_mat = cv::Mat::zeros(new_mat.size(), CV_8UC1);
+  }
   if (label_raster_dataset) {
     label_mat = utils::CreateMatFromDataset(label_raster_dataset);
   } else {
@@ -129,6 +154,8 @@ void GraphCutImpl::PrepareData(
 bool GraphCutImpl::ExecuteMosaicking(
     const cv::Mat& covered_mat,
     const cv::Mat& new_mat,
+    const cv::Mat& covered_mask_mat,
+    const cv::Mat& new_mask_mat,
     const cv::Mat& label_mat,
     double* geotrans,
     OGRSpatialReference* spatial_ref,
@@ -220,7 +247,7 @@ bool GraphCutImpl::ExecuteMosaicking(
   new_y_mat = cv::abs(new_y_mat);
   Data data{
       grad_self_low_, grad_self_high_, grad_self_exp_, diff_low_, diff_exp_,
-      covered_mat, covered_x_mat, covered_y_mat, new_mat, new_x_mat, new_y_mat,
+      covered_mat, covered_mask_mat, covered_x_mat, covered_y_mat, new_mat, new_mask_mat, new_x_mat, new_y_mat,
       &idx_to_coor};
   gco->SetSmoothCost(SmoothCost, &data);
   //std::cout << gco->ComputeSmoothEnergy() << std::endl;
@@ -357,9 +384,17 @@ int GraphCutImpl::SmoothCost(
       min_col(std::min(col1, col2));
   float data_value1(0.0f), data_value2(0.0f);
   if (label1 == 0) {
+    if (int(_data->covered_mask_mat.at<int8_t>(row1, col1)) != 0 ||
+        int(_data->new_mask_mat.at<int8_t>(row2, col2)) != 0) {
+      return MAX_ENERGYTERM;
+    }
     data_value1 = _data->covered_mat.at<float>(row1, col1);
     data_value2 = _data->new_mat.at<float>(row2, col2);
   } else {
+    if (int(_data->covered_mask_mat.at<int8_t>(row2, col2)) != 0 ||
+        int(_data->new_mask_mat.at<int8_t>(row1, col1) != 0)) {
+      return MAX_ENERGYTERM;
+    }
     data_value1 = _data->new_mat.at<float>(row1, col1);
     data_value2 = _data->covered_mat.at<float>(row2, col2);
   }

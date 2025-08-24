@@ -221,7 +221,8 @@ int main(int argc, char* argv[]) {
           for (const auto& entry : fs::directory_iterator(path)) {
             if (auto subpath(entry.path());
                 utils::GetRasterDriverByPath(subpath.string()) &&
-                std::find(begin, end, subpath.filename().string()) == end) {
+                std::find(begin, end, subpath.filename().string()) == end &&
+                subpath.string().find("mask") == std::string::npos) {
               input_paths.push_back(subpath.string());
             }
           }
