@@ -6,18 +6,29 @@
 </h2>
 </div>
 
-## Usage
+## Installation
 
-Google Drive Link:  
+All files referenced below can be downloaded from the following Google Drive link:  
 https://drive.google.com/drive/folders/1BeFTfLwQ7DjmYqA8Xhi7VUxj4ZgG00ig?usp=drive_link
 
-### Building Tools
+### Build from Source
 
-We provide build tools for the Windows platform, including CMake configuration files and third-party libraries managed through vcpkg.
+Build tools for the Windows platform are provided, including CMake configuration files and third-party libraries managed via vcpkg.
+
+1. Download **LCMake** and **vcpkg-export-20250521-153211.zip**, and extract them.  
+2. Specify the toolchain file for cross-compiling located in  
+   `vcpkg-export-20250521-153211\scripts\buildsystems\vcpkg.cmake`.  
+3. Set `LCMAKE_DIR` to `LCMake\cmake`.  
+4. Configure and generate the project.  
 
 ### Pre-built Binaries
 
-Pre-built binaries for the Windows platform are also available, together with four GaoFen-2 images from the paper as test data. To generate the seamline, run the following command:
+Pre-built binaries for the Windows platform are available in **GIIM_release.zip**.
+
+## Usage
+
+Four GaoFen-2 images used in the paper are provided as test data in **Guangzhou-GF2.zip**.  
+To generate the seamline, run the following command:
 
 ```bash
 RS-Toolset_app_mosaicking.exe \
